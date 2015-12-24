@@ -602,6 +602,11 @@ func (a *App) run(req *http.Request, w http.ResponseWriter,
 	c.ResponseWriter = w
 	c.ExtensionName = extensionName
 	c.args = make([]string, len(args))
+	c.Exit = false
+	c.RequestBody = make([]byte, 0)
+	c.session = a.SessionManager.Session(req, w)
+	c.T = T{}
+	c.f = T{}
 	defer a.actionPool.Put(c)
 
 	for k, v := range args {
