@@ -2,6 +2,7 @@ package route
 
 import (
 	//"fmt"
+	"github.com/coscms/webx/lib/reflected"
 	"reflect"
 	"regexp"
 )
@@ -20,11 +21,11 @@ type Route struct {
 
 //map[string]*StaticRoute
 type StaticRoute struct {
-	ReflectType   reflect.Type
 	RequestMethod map[string]bool
 	Extensions    map[string]bool
 	BothFuncs     map[string]bool
 	ExecuteFunc   string
+	*reflected.Reflected
 }
 
 //[]*RegexpRoute
@@ -33,20 +34,20 @@ type RegexpRoute struct {
 	Regexp        *regexp.Regexp
 	StaticLength  int
 	StaticPath    string
-	ReflectType   reflect.Type
 	RequestMethod map[string]bool
 	Extensions    map[string]bool
 	BothFuncs     map[string]bool
 	ExecuteFunc   string
+	*reflected.Reflected
 }
 
 func (r *Route) Set(route string, execFunc string,
 	reqMethod map[string]bool, extensions map[string]bool,
-	group map[string]bool, refType reflect.Type) {
+	group map[string]bool, ref *reflected.Reflected) {
 	routeReg := regexp.QuoteMeta(route)
 	if route == routeReg {
 		a := &StaticRoute{
-			ReflectType:   refType,
+			Reflected:     ref,
 			RequestMethod: reqMethod,
 			Extensions:    extensions,
 			BothFuncs:     group,
@@ -60,7 +61,7 @@ func (r *Route) Set(route string, execFunc string,
 			Regexp:        regexpInstance,
 			StaticLength:  length,
 			StaticPath:    staticPath,
-			ReflectType:   refType,
+			Reflected:     ref,
 			RequestMethod: reqMethod,
 			Extensions:    extensions,
 			BothFuncs:     group,
@@ -71,7 +72,7 @@ func (r *Route) Set(route string, execFunc string,
 }
 
 func (r *Route) Get(reqPath string, reqMethod string,
-	extension string) ([]reflect.Value, string, reflect.Type, bool, bool, bool) {
+	extension string) ([]reflect.Value, string, *reflected.Reflected, bool, bool, bool) {
 	if route, ok := r.Static[reqPath]; ok {
 		onMethod, ok := route.RequestMethod[reqMethod]
 		if ok {
@@ -83,7 +84,7 @@ func (r *Route) Get(reqPath string, reqMethod string,
 			if !ok {
 				onGroup = false
 			}
-			return nil, route.ExecuteFunc, route.ReflectType, onMethod, onExtension, onGroup
+			return nil, route.ExecuteFunc, route.Reflected, onMethod, onExtension, onGroup
 		}
 	}
 	length := len(reqPath)
@@ -112,7 +113,7 @@ func (r *Route) Get(reqPath string, reqMethod string,
 		if !ok {
 			onGroup = false
 		}
-		return args, route.ExecuteFunc, route.ReflectType, onMethod, onExtension, onGroup
+		return args, route.ExecuteFunc, route.Reflected, onMethod, onExtension, onGroup
 	}
 	return nil, "", nil, false, false, false
 }

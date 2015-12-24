@@ -20,6 +20,7 @@ import (
 	"github.com/coscms/tagfast"
 	"github.com/coscms/webx/lib/httpsession"
 	"github.com/coscms/webx/lib/log"
+	"github.com/coscms/webx/lib/reflected"
 	"github.com/coscms/webx/lib/route"
 	"github.com/coscms/webx/lib/tplex"
 )
@@ -367,24 +368,64 @@ func (app *App) filter(w http.ResponseWriter, req *http.Request) bool {
 
 func (app *App) AddRouter(url string, c interface{}) {
 	t := reflect.TypeOf(c).Elem()
-	v := reflect.ValueOf(c)
-	actionFullName := t.Name()
-	actionShortName := strings.TrimSuffix(actionFullName, "Action")
-	actionShortName = strings.ToLower(actionShortName)
+	v := reflect.ValueOf(c).Elem()
+	structFullName := t.Name()
+	structNameRefv := reflect.ValueOf(structFullName)
+	structShortName := strings.TrimSuffix(structFullName, "Action")
+	structShortName = strings.ToLower(structShortName)
 	app.ActionsPath[t] = url
-	app.Actions[actionFullName] = c
-	app.ActionsNamePath[actionFullName] = url
-	app.ActionsMethodRoute[actionFullName] = make(map[string]string)
+	app.Actions[structFullName] = c
+	app.ActionsNamePath[structFullName] = url
+	app.ActionsMethodRoute[structFullName] = make(map[string]string)
 
+	if f := v.FieldByName("Action"); !f.IsValid() {
+		return
+	}
+	/*
+		if f := v.FieldByName("C"); !f.IsValid() {
+			return
+		}
+	*/
 	for i := 0; i < t.NumField(); i++ {
 		if t.Field(i).Type != mapperType {
 			continue
 		}
+
 		name := t.Field(i).Name
 		a := strings.Title(name)
 		m := v.MethodByName(a)
 		if !m.IsValid() {
 			continue
+		}
+
+		ref := &reflected.Reflected{
+			Handles: make([]reflected.Handler, 0),
+			Type:    t,
+			Value:   v,
+		}
+
+		action := &reflected.Handle{
+			Method:    m,
+			NumIn:     m.Type().NumIn(),
+			ExtMethod: make(map[string]reflect.Value),
+		}
+
+		m = v.MethodByName("Init")
+		if m.IsValid() {
+			h := &reflected.HandleInit{
+				Method: m,
+			}
+			ref.Handles = append(ref.Handles, h)
+		}
+
+		actionNameRefv := reflect.ValueOf(a)
+		m = v.MethodByName("Before")
+		if m.IsValid() {
+			h := &reflected.HandleBefore{
+				Method: m,
+				Args:   []reflect.Value{structNameRefv, actionNameRefv},
+			}
+			ref.Handles = append(ref.Handles, h)
 		}
 
 		tag := t.Field(i).Tag
@@ -404,25 +445,25 @@ func (app *App) AddRouter(url string, c interface{}) {
 					path = name
 				}
 				if tags[1][0] != '/' {
-					path = "/" + actionShortName + "/" + path
+					path = "/" + structShortName + "/" + path
 				}
 			} else if length == 1 {
 				if matched, _ := regexp.MatchString(`^[A-Z.]+(\|[A-Z]+)*$`, tags[0]); !matched {
 					//非全大写字母时，判断为网址规则
 					path = tags[0]
 					if tags[0][0] != '/' { //`webx:"index"`
-						path = "/" + actionShortName + "/" + path
+						path = "/" + structShortName + "/" + path
 					}
 				} else { //`webx:"GET|POST"`
 					meStr = tags[0]
-					path = "/" + actionShortName + "/" + name
+					path = "/" + structShortName + "/" + name
 				}
 			} else {
-				path = "/" + actionShortName + "/" + name
+				path = "/" + structShortName + "/" + name
 			}
 			p = strings.TrimRight(url, "/") + path
 		} else {
-			p = strings.TrimRight(url, "/") + "/" + actionShortName + "/" + name
+			p = strings.TrimRight(url, "/") + "/" + structShortName + "/" + name
 		}
 		p = removeStick(p)
 
@@ -439,19 +480,35 @@ func (app *App) AddRouter(url string, c interface{}) {
 			for _, method := range strings.Split(methodsStr, "|") {
 				method = strings.ToUpper(method)
 				m := v.MethodByName(a + "_" + method)
-				methods[method] = m.IsValid()
+				y := m.IsValid()
+				methods[method] = y
+				if y {
+					action.ExtMethod[method] = m
+				}
 			}
 		} else {
 			m := v.MethodByName(a + "_GET")
-			methods["GET"] = m.IsValid()
+			y := m.IsValid()
+			methods["GET"] = y
+			if y {
+				action.ExtMethod["GET"] = m
+			}
 			m = v.MethodByName(a + "_POST")
-			methods["POST"] = m.IsValid()
+			y = m.IsValid()
+			methods["POST"] = y
+			if y {
+				action.ExtMethod["POST"] = m
+			}
 		}
 		if extensionsStr != "" {
 			for _, extension := range strings.Split(extensionsStr, "|") {
 				extension = strings.ToUpper(extension)
 				m := v.MethodByName(a + "_" + extension)
-				extensions[extension] = m.IsValid()
+				y := m.IsValid()
+				extensions[extension] = y
+				if y {
+					action.ExtMethod[extension] = m
+				}
 			}
 		}
 		if len(methods) > 0 && len(extensions) > 0 {
@@ -459,12 +516,28 @@ func (app *App) AddRouter(url string, c interface{}) {
 				for extension, _ := range extensions {
 					key := method + "_" + extension
 					m := v.MethodByName(a + "_" + key)
-					group[key] = m.IsValid()
+					y := m.IsValid()
+					group[key] = y
+					if y {
+						action.ExtMethod[key] = m
+					}
+
 				}
 			}
 		}
-		app.Route.Set(p, a, methods, extensions, group, t)
-		app.Debug("Action:", actionFullName+"."+a+";", "Route Information:", p+";", "Request Method:", methods)
+		ref.Handles = append(ref.Handles, action)
+
+		m = v.MethodByName("After")
+		if m.IsValid() {
+			h := &reflected.HandleAfter{
+				Method: m,
+				Args:   []reflect.Value{structNameRefv, actionNameRefv},
+			}
+			ref.Handles = append(ref.Handles, h)
+		}
+
+		app.Route.Set(p, a, methods, extensions, group, ref)
+		app.Debug("Action:", structFullName+"."+a+";", "Route Information:", p+";", "Request Method:", methods)
 	}
 }
 
@@ -552,20 +625,20 @@ func (a *App) routeHandler(req *http.Request, w http.ResponseWriter) {
 		reqPath = "/" + strings.TrimPrefix(reqPath, a.BasePath)
 	}
 	reqMethod := Ternary(req.Method == "HEAD", "GET", req.Method).(string)
-	args, fnName, rfType, onMethod, onExtension, onGroup := a.Route.Get(reqPath, reqMethod, reqExtension)
-	if rfType != nil && fnName != "" {
+	args, fnName, ref, onMethod, onExtension, onGroup := a.Route.Get(reqPath, reqMethod, reqExtension)
+	if ref != nil && fnName != "" {
 		var (
 			isBreak bool
 			suffix  string
 		)
 		if onGroup {
-			suffix = "_" + reqMethod + "_" + reqExtension
+			suffix = reqMethod + "_" + reqExtension
 		} else if onMethod {
-			suffix = "_" + reqMethod
+			suffix = reqMethod
 		} else if onExtension {
-			suffix = "_" + reqExtension
+			suffix = reqExtension
 		}
-		isBreak, statusCode, responseSize = a.run(req, w, fnName, rfType, args, suffix, extension)
+		isBreak, statusCode, responseSize = a.run(req, w, fnName, ref, args, suffix, extension)
 		if isBreak {
 			return
 		}
@@ -588,7 +661,7 @@ func (a *App) routeHandler(req *http.Request, w http.ResponseWriter) {
 }
 
 func (a *App) run(req *http.Request, w http.ResponseWriter,
-	handlerName string, reflectType reflect.Type,
+	handlerName string, ref *reflected.Reflected,
 	args []reflect.Value, handlerSuffix string, extensionName string) (isBreak bool,
 	statusCode int, responseSize int64) {
 
@@ -596,7 +669,7 @@ func (a *App) run(req *http.Request, w http.ResponseWriter,
 		handlerName += handlerSuffix
 	}
 	isBreak = true
-	vc := reflect.New(reflectType)
+
 	c := a.actionPool.Get().(*Action)
 	c.Request = req
 	c.ResponseWriter = w
@@ -616,96 +689,49 @@ func (a *App) run(req *http.Request, w http.ResponseWriter,
 	for k, v := range a.VarMaps {
 		c.T[k] = v
 	}
+
+	vc := reflect.New(ref.Type)
 	elem := vc.Elem()
 	//设置Action字段的值
-	fieldA := elem.FieldByName("Action")
-	if fieldA.IsValid() {
-		fieldA.Set(reflect.ValueOf(c))
-	}
+	elem.FieldByName("Action").Set(reflect.ValueOf(c))
 
 	//设置C字段的值
-	fieldC := elem.FieldByName("C")
-	if fieldC.IsValid() {
-		fieldC.Set(reflect.ValueOf(vc))
-	}
+	elem.FieldByName("C").Set(reflect.ValueOf(vc))
 
-	//执行Init方法
-	initM := vc.MethodByName("Init")
-	if initM.IsValid() {
-		initM.Call([]reflect.Value{})
-	}
-
-	if c.Exit {
-		responseSize = c.ResponseSize
-		return
-	}
-
-	//表单数据自动映射到结构体
-	if c.Option.AutoMapForm {
-		a.StructMap(vc, req)
-	}
-
-	//验证XSRF
-	if c.Option.CheckXsrf {
-		a.XsrfManager.Init(c)
-		if req.Method == "POST" {
-			formVals := req.Form[XSRF_TAG]
-			var formVal string
-			if len(formVals) > 0 {
-				formVal = formVals[0]
+	ret := []reflect.Value{}
+	for k, h := range ref.Handles {
+		if k == 0 {
+			if c.Option.AutoMapForm {
+				a.StructMap(vc, req)
 			}
-			if formVal == "" ||
-				!a.XsrfManager.Valid(a.AppConfig.CookiePrefix+
-					XSRF_TAG, formVal) {
-				a.error(w, 500, "xsrf token error.")
-				a.Error("xsrf token error.")
-				statusCode = 500
-				return
+			//验证XSRF
+			if c.Option.CheckXsrf {
+				a.XsrfManager.Init(c)
+				if req.Method == "POST" {
+					formVals := req.Form[XSRF_TAG]
+					var formVal string
+					if len(formVals) > 0 {
+						formVal = formVals[0]
+					}
+					if formVal == "" ||
+						!a.XsrfManager.Valid(a.AppConfig.CookiePrefix+
+							XSRF_TAG, formVal) {
+						a.error(w, 500, "xsrf token error.")
+						a.Error("xsrf token error.")
+						statusCode = 500
+						return
+					}
+				}
 			}
 		}
-	}
-	structName := reflect.ValueOf(reflectType.Name())
-	actionName := reflect.ValueOf(handlerName)
-
-	//执行Before方法
-	initM = vc.MethodByName("Before")
-	if initM.IsValid() {
-		structAction := []reflect.Value{structName, actionName}
-		if ok := initM.Call(structAction); c.Exit || (len(ok) > 0 && ok[0].Kind() == reflect.Bool && !ok[0].Bool()) {
+		h.SetArgs(args)
+		ret := h.Exec(ret...)
+		if c.Exit || (len(ret) > 0 && ret[0].Kind() == reflect.Bool && !ret[0].Bool()) {
 			responseSize = c.ResponseSize
 			return
 		}
 	}
-	ret, err := a.SafelyCall(vc, handlerName, args)
-	if err != nil {
-		//there was an error or panic while calling the handler
-		if a.AppConfig.Mode == Debug {
-			a.error(w, 500, fmt.Sprintf("<pre>handler error: %v</pre>", err))
-		} else if a.AppConfig.Mode == Product {
-			a.error(w, 500, "Server Error")
-		}
-		statusCode = 500
-		responseSize = c.ResponseSize
-		return
-	}
-	statusCode = fieldA.Interface().(*Action).StatusCode
 
-	//执行After方法
-	initM = vc.MethodByName("After")
-	if initM.IsValid() {
-		structAction := []reflect.Value{structName, actionName}
-		structAction = append(structAction, ret...)
-		if len(structAction) != initM.Type().NumIn() {
-			a.Errorf("Error : %v.After(): The number of params is not adapted.", structName)
-			return
-		}
-		ret = initM.Call(structAction)
-	}
-
-	if c.Exit {
-		responseSize = c.ResponseSize
-		return
-	}
 	if len(ret) == 0 {
 		defaultResponse(c, nil)
 		responseSize = c.ResponseSize
@@ -1219,7 +1245,7 @@ example:
 func (app *App) Nodes() (r map[string]map[string][]string) {
 	r = make(map[string]map[string][]string)
 	for _, val := range app.Route.Regexp {
-		name := val.ReflectType.Name()
+		name := val.Reflected.Type.Name()
 		if _, ok := r[name]; !ok {
 			r[name] = make(map[string][]string)
 		}
@@ -1231,7 +1257,7 @@ func (app *App) Nodes() (r map[string]map[string][]string) {
 		}
 	}
 	for _, val := range app.Route.Static {
-		name := val.ReflectType.Name()
+		name := val.Reflected.Type.Name()
 		if _, ok := r[name]; !ok {
 			r[name] = make(map[string][]string)
 		}
