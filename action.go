@@ -49,7 +49,6 @@ type Action struct {
 	session       *httpsession.Session
 	T             T
 	f             T
-	RootTemplate  *template.Template
 	RequestBody   []byte
 	StatusCode    int
 	ResponseSize  int64
@@ -636,27 +635,18 @@ func (c *Action) setTemplateData(params ...*T) {
 // render the template with vars map, you can have zero or one map
 func (c *Action) NamedRender(name, content string, params ...*T) error {
 	c.setTemplateData(params...)
-	c.RootTemplate = template.New(name)
-	c.RootTemplate.Funcs(c.GetFuncs())
+	tmpl := template.New(name)
+	tmpl.Funcs(c.GetFuncs())
 
 	Event("BeforeRender", &ActionInformation{c, &content, nil}, func(_ bool) {})
 
-	tmpl, err := c.RootTemplate.Parse(content)
+	tmpl, err := tmpl.Parse(content)
 	if err != nil {
 		c.SetBody([]byte(fmt.Sprintf("%v", err)))
 		return err
 	}
-	newbytes := bytes.NewBufferString("")
-	err = tmpl.Execute(newbytes, c.C.Elem().Interface())
-	if err != nil {
-		c.SetBody([]byte(fmt.Sprintf("%v", err)))
-		return err
-	}
-	b, err := ioutil.ReadAll(newbytes)
-	if err != nil {
-		c.SetBody([]byte(fmt.Sprintf("%v", err)))
-		return err
-	}
+	content = c.App.TemplateEx.Parse(tmpl, c.C.Elem().Interface())
+	b := []byte(content)
 	Event("AfterRender", &ActionInformation{c, nil, &b}, func(result bool) {
 		if result {
 			err = c.SetBody(b)
