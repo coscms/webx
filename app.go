@@ -14,6 +14,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/coscms/tagfast"
@@ -85,6 +86,7 @@ type App struct {
 	TemplateEx         *tplex.TemplateEx
 	ContentEncoding    string
 	RequestTime        time.Time
+	actionPool         sync.Pool
 	Cryptor
 	XsrfManager
 }
@@ -130,7 +132,7 @@ type AppConfig struct {
 }
 
 func NewApp(path string, name string) *App {
-	return &App{
+	app := &App{
 		BasePath:           path,
 		Name:               name,
 		Route:              route.NewRoute(),
@@ -147,6 +149,18 @@ func NewApp(path string, name string) *App {
 		Cryptor:            DefaultCryptor,
 		XsrfManager:        DefaultXsrfManager,
 	}
+	app.actionPool.New = func() interface{} {
+		return &Action{
+			App: app,
+			T:   T{},
+			f:   T{},
+			Option: &ActionOption{
+				AutoMapForm: app.AppConfig.FormMapToStruct,
+				CheckXsrf:   app.AppConfig.CheckXsrf,
+			},
+		}
+	}
+	return app
 }
 
 func (a *App) IsRootApp() bool {
@@ -583,19 +597,12 @@ func (a *App) run(req *http.Request, w http.ResponseWriter,
 	}
 	isBreak = true
 	vc := reflect.New(reflectType)
-	c := &Action{
-		Request:        req,
-		App:            a,
-		ResponseWriter: w,
-		T:              T{},
-		f:              T{},
-		Option: &ActionOption{
-			AutoMapForm: a.AppConfig.FormMapToStruct,
-			CheckXsrf:   a.AppConfig.CheckXsrf,
-		},
-		ExtensionName: extensionName,
-		args:          make([]string, len(args)),
-	}
+	c := a.actionPool.Get().(*Action)
+	c.Request = req
+	c.ResponseWriter = w
+	c.ExtensionName = extensionName
+	c.args = make([]string, len(args))
+	defer a.actionPool.Put(c)
 
 	for k, v := range args {
 		c.args[k] = v.String()
