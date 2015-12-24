@@ -63,31 +63,44 @@ func New(logger *log.Logger, templateDir string, cached ...bool) *TemplateEx {
 
 type CcRel struct {
 	Rel map[string]uint8
-	Tpl *htmlTpl.Template
+	Tpl [2]*htmlTpl.Template //0是独立模板；1是子模板
 }
 
 type TemplateEx struct {
-	CachedRelation   map[string]*CcRel
-	TemplateDir      string
-	TemplateMgr      *TemplateMgr
-	BeforeRender     func(*string)
-	DelimLeft        string
-	DelimRight       string
-	incTagRegex      *regexp.Regexp
-	extTagRegex      *regexp.Regexp
-	blkTagRegex      *regexp.Regexp
-	cachedRegexIdent string
-	IncludeTag       string
-	ExtendTag        string
-	BlockTag         string
-	Ext              string
+	CachedRelation     map[string]*CcRel
+	TemplateDir        string
+	TemplateMgr        *TemplateMgr
+	BeforeRender       func(*string)
+	DelimLeft          string
+	DelimRight         string
+	incTagRegex        *regexp.Regexp
+	extTagRegex        *regexp.Regexp
+	blkTagRegex        *regexp.Regexp
+	cachedRegexIdent   string
+	IncludeTag         string
+	ExtendTag          string
+	BlockTag           string
+	Ext                string
+	TemplatePathParser func(string) string
+}
+
+func (self *TemplateEx) TemplatePath(p string) string {
+	if self.TemplatePathParser == nil {
+		return p
+	}
+	return self.TemplatePathParser(p)
 }
 
 func (self *TemplateEx) Fetch(tmplName string, fn func() htmlTpl.FuncMap, values interface{}) string {
 	tmplName += self.Ext
 	var tmpl *htmlTpl.Template
+	var funcMap htmlTpl.FuncMap
+	if fn != nil {
+		funcMap = fn()
+	}
+	tmplName = self.TemplatePath(tmplName)
 	cv, ok := self.CachedRelation[tmplName]
-	if !ok {
+	if !ok || cv.Tpl[0] == nil {
 		b, err := self.RawContent(tmplName)
 		if err != nil {
 			return fmt.Sprintf("RenderTemplate %v read err: %s", tmplName, err)
@@ -114,6 +127,7 @@ func (self *TemplateEx) Fetch(tmplName string, fn func() htmlTpl.FuncMap, values
 			self.ParseBlock(content, &subcs, &extcs)
 			extFile := m[0][1] + self.Ext
 			passObject := m[0][2]
+			extFile = self.TemplatePath(extFile)
 			b, err = self.RawContent(extFile)
 			if err != nil {
 				return fmt.Sprintf("RenderTemplate %v read err: %s", extFile, err)
@@ -124,27 +138,19 @@ func (self *TemplateEx) Fetch(tmplName string, fn func() htmlTpl.FuncMap, values
 		content = self.ContainsSubTpl(content, &subcs)
 		t := htmlTpl.New(tmplName)
 		t.Delims(self.DelimLeft, self.DelimRight)
-		var funcMap htmlTpl.FuncMap
-		if fn != nil {
-			funcMap = fn()
-			t.Funcs(funcMap)
-		}
+		t.Funcs(funcMap)
 
 		tmpl, err = t.Parse(content)
 		if err != nil {
 			return fmt.Sprintf("Parse %v err: %v", tmplName, err)
 		}
 		for name, subc := range subcs {
-			if _, ok := self.CachedRelation[name]; ok {
+			v, ok := self.CachedRelation[name]
+			if ok && v.Tpl[1] != nil {
 				self.CachedRelation[name].Rel[tmplName] = 0
 				continue
 			}
 			var t *htmlTpl.Template
-			if tmpl == nil {
-				tmpl = htmlTpl.New(name)
-				tmpl.Delims(self.DelimLeft, self.DelimRight)
-				tmpl.Funcs(funcMap)
-			}
 			if name == tmpl.Name() {
 				t = tmpl
 			} else {
@@ -157,18 +163,18 @@ func (self *TemplateEx) Fetch(tmplName string, fn func() htmlTpl.FuncMap, values
 			if err != nil {
 				return fmt.Sprintf("Parse File %v err: %v", name, err)
 			}
-			self.CachedRelation[name] = &CcRel{
-				Rel: map[string]uint8{tmplName: 0},
-				Tpl: t,
+			if ok {
+				self.CachedRelation[name].Rel[tmplName] = 0
+				self.CachedRelation[name].Tpl[1] = t
+			} else {
+				self.CachedRelation[name] = &CcRel{
+					Rel: map[string]uint8{tmplName: 0},
+					Tpl: [2]*htmlTpl.Template{nil, t},
+				}
 			}
 		}
 		for name, extc := range extcs {
 			var t *htmlTpl.Template
-			if tmpl == nil {
-				tmpl = htmlTpl.New(name)
-				tmpl.Delims(self.DelimLeft, self.DelimRight)
-				tmpl.Funcs(funcMap)
-			}
 			if name == tmpl.Name() {
 				t = tmpl
 			} else {
@@ -184,10 +190,11 @@ func (self *TemplateEx) Fetch(tmplName string, fn func() htmlTpl.FuncMap, values
 		}
 		self.CachedRelation[tmplName] = &CcRel{
 			Rel: map[string]uint8{tmplName: 0},
-			Tpl: tmpl,
+			Tpl: [2]*htmlTpl.Template{tmpl, nil},
 		}
 	} else {
-		tmpl = cv.Tpl
+		tmpl = cv.Tpl[0]
+		tmpl.Funcs(funcMap)
 	}
 	return self.Parse(tmpl, values)
 }
@@ -226,8 +233,9 @@ func (self *TemplateEx) ContainsSubTpl(content string, subcs *map[string]string)
 		tmplFile := v[1]
 		passObject := v[2]
 		tmplFile += self.Ext
+		tmplFile = self.TemplatePath(tmplFile)
 		if _, ok := (*subcs)[tmplFile]; !ok {
-			if _, ok := self.CachedRelation[tmplFile]; ok {
+			if v, ok := self.CachedRelation[tmplFile]; ok && v.Tpl[1] != nil {
 				(*subcs)[tmplFile] = ""
 				continue
 			}
