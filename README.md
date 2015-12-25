@@ -2,8 +2,6 @@
 
 webx是一个强大的Go语言web框架。
 
-[English](https://github.com/coscms/webx/blob/master/README_EN.md)
-
 [![Go Walker](http://gowalker.org/api/v1/badge)](http://gowalker.org/github.com/coscms/webx) [![Bitdeli Badge](https://d2weczhvl823v0.cloudfront.net/go-webx/webx/trend.png)](https://bitdeli.com/free "Bitdeli Badge")
 
 ## 技术支持
@@ -11,6 +9,10 @@ webx是一个强大的Go语言web框架。
 QQ群：369240307
 
 ## 更新日志
+* **v1.0.0** : 
+        1. 新增模板扩展
+        2. 将扩展包统一放到lib文件夹
+        3. 框架启用新名字webx
 * **v0.5.0** : 
 	1. Server支持平滑关闭；
 	2. 静态文件和模板文件仅在使用时才缓存（优点：加快服务生效时间和节约内存），支持根据配置自动改变监控目录；
