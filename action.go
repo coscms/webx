@@ -617,6 +617,7 @@ func (c *Action) Include(tmplName string) interface{} {
 
 func (c *Action) setTemplateData(params ...*T) {
 	c.f["include"] = c.Include
+	c.f["Include"] = c.Include
 	if c.App.AppConfig.SessionOn {
 		c.f["session"] = c.GetSession
 	} else {

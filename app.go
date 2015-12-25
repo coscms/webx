@@ -74,6 +74,7 @@ type App struct {
 	Config             *CONF
 	Actions            map[string]interface{}
 	ActionsPath        map[reflect.Type]string
+	Controllers        map[reflect.Type]sync.Pool
 	ActionsNamePath    map[string]string
 	ActionsMethodRoute map[string]map[string]string
 	FuncMaps           template.FuncMap
@@ -140,6 +141,7 @@ func NewApp(path string, name string) *App {
 		Config:             NewCONF(),
 		Actions:            map[string]interface{}{},
 		ActionsPath:        map[reflect.Type]string{},
+		Controllers:        map[reflect.Type]sync.Pool{},
 		ActionsNamePath:    map[string]string{},
 		ActionsMethodRoute: make(map[string]map[string]string),
 		FuncMaps:           DefaultFuncs,
@@ -587,6 +589,20 @@ func (a *App) routeHandler(req *http.Request, w http.ResponseWriter) {
 	statusCode = 404
 }
 
+type Reflected struct {
+	NameV           reflect.Value
+	StructV         reflect.Value
+	HasFieldAction  bool
+	HasMethodInit   bool
+	HasMethodBefore bool
+	HasMethodAfter  bool
+	FieldAction     reflect.Value
+	MethodInit      reflect.Value
+	MethodBefore    reflect.Value
+	MethodAfter     reflect.Value
+	MethodByPath    map[string]reflect.Value
+}
+
 func (a *App) run(req *http.Request, w http.ResponseWriter,
 	handlerName string, reflectType reflect.Type,
 	args []reflect.Value, handlerSuffix string, extensionName string) (isBreak bool,
@@ -596,7 +612,43 @@ func (a *App) run(req *http.Request, w http.ResponseWriter,
 		handlerName += handlerSuffix
 	}
 	isBreak = true
-	vc := reflect.New(reflectType)
+	pool, ok := a.Controllers[reflectType]
+	if !ok {
+		pool.New = func() interface{} {
+			ref := &Reflected{
+				NameV:        reflect.ValueOf(reflectType.Name()),
+				StructV:      reflect.New(reflectType),
+				MethodByPath: make(map[string]reflect.Value),
+			}
+			elem := ref.StructV.Elem()
+			if m := elem.FieldByName("Action"); m.IsValid() {
+				ref.HasFieldAction = true
+				ref.FieldAction = m
+			}
+			if m := ref.StructV.MethodByName("Init"); m.IsValid() {
+				ref.HasMethodInit = true
+				ref.MethodInit = m
+			}
+			if m := ref.StructV.MethodByName("Before"); m.IsValid() {
+				ref.HasMethodBefore = true
+				ref.MethodBefore = m
+			}
+			if m := ref.StructV.MethodByName("After"); m.IsValid() {
+				ref.HasMethodAfter = true
+				ref.MethodAfter = m
+			}
+			if m := ref.StructV.MethodByName(handlerName); m.IsValid() {
+				ref.MethodByPath[handlerName] = m
+			}
+			return ref
+		}
+
+		a.Controllers[reflectType] = pool
+	}
+
+	ref := pool.Get().(*Reflected)
+	defer pool.Put(ref)
+
 	c := a.actionPool.Get().(*Action)
 	c.Request = req
 	c.ResponseWriter = w
@@ -604,7 +656,7 @@ func (a *App) run(req *http.Request, w http.ResponseWriter,
 	c.args = make([]string, len(args))
 	c.Exit = false
 	c.RequestBody = make([]byte, 0)
-	c.session = a.SessionManager.Session(req, w)
+	c.session = nil
 	c.T = T{}
 	c.f = T{}
 	defer a.actionPool.Put(c)
@@ -616,23 +668,19 @@ func (a *App) run(req *http.Request, w http.ResponseWriter,
 	for k, v := range a.VarMaps {
 		c.T[k] = v
 	}
-	elem := vc.Elem()
-	//设置Action字段的值
-	fieldA := elem.FieldByName("Action")
-	if fieldA.IsValid() {
-		fieldA.Set(reflect.ValueOf(c))
-	}
 
-	//设置C字段的值
-	fieldC := elem.FieldByName("C")
-	if fieldC.IsValid() {
-		fieldC.Set(reflect.ValueOf(vc))
+	vc := ref.StructV
+
+	//设置Action字段的值
+	if ref.HasFieldAction {
+		ref.FieldAction.Set(reflect.ValueOf(c))
+		//设置C字段的值
+		vc.Elem().FieldByName("C").Set(reflect.ValueOf(vc))
 	}
 
 	//执行Init方法
-	initM := vc.MethodByName("Init")
-	if initM.IsValid() {
-		initM.Call([]reflect.Value{})
+	if ref.HasMethodInit {
+		ref.MethodInit.Call([]reflect.Value{})
 	}
 
 	if c.Exit {
@@ -664,19 +712,23 @@ func (a *App) run(req *http.Request, w http.ResponseWriter,
 			}
 		}
 	}
-	structName := reflect.ValueOf(reflectType.Name())
+	structName := ref.NameV
 	actionName := reflect.ValueOf(handlerName)
 
 	//执行Before方法
-	initM = vc.MethodByName("Before")
-	if initM.IsValid() {
+	if ref.HasMethodBefore {
 		structAction := []reflect.Value{structName, actionName}
-		if ok := initM.Call(structAction); c.Exit || (len(ok) > 0 && ok[0].Kind() == reflect.Bool && !ok[0].Bool()) {
+		if ok := ref.MethodBefore.Call(structAction); c.Exit || (len(ok) > 0 && ok[0].Kind() == reflect.Bool && !ok[0].Bool()) {
 			responseSize = c.ResponseSize
 			return
 		}
 	}
-	ret, err := a.SafelyCall(vc, handlerName, args)
+	fn, ok := ref.MethodByPath[handlerName]
+	if !ok {
+		fn = ref.StructV.MethodByName(handlerName)
+		ref.MethodByPath[handlerName] = fn
+	}
+	ret, err := a.SafelyCall(fn, args)
 	if err != nil {
 		//there was an error or panic while calling the handler
 		if a.AppConfig.Mode == Debug {
@@ -688,20 +740,18 @@ func (a *App) run(req *http.Request, w http.ResponseWriter,
 		responseSize = c.ResponseSize
 		return
 	}
-	statusCode = fieldA.Interface().(*Action).StatusCode
+	statusCode = c.StatusCode
 
 	//执行After方法
-	initM = vc.MethodByName("After")
-	if initM.IsValid() {
+	if ref.HasMethodAfter {
 		structAction := []reflect.Value{structName, actionName}
 		structAction = append(structAction, ret...)
-		if len(structAction) != initM.Type().NumIn() {
+		if len(structAction) != ref.MethodAfter.Type().NumIn() {
 			a.Errorf("Error : %v.After(): The number of params is not adapted.", structName)
 			return
 		}
-		ret = initM.Call(structAction)
+		ret = ref.MethodAfter.Call(structAction)
 	}
-
 	if c.Exit {
 		responseSize = c.ResponseSize
 		return
@@ -843,7 +893,7 @@ func (a *App) StaticUrl(url string) string {
 }
 
 // safelyCall invokes `function` in recover block
-func (a *App) SafelyCall(vc reflect.Value, method string, args []reflect.Value) (resp []reflect.Value, err error) {
+func (a *App) SafelyCall(fn reflect.Value, args []reflect.Value) (resp []reflect.Value, err error) {
 	defer func() {
 		if e := recover(); e != nil {
 			if !a.Server.Config.RecoverPanic {
@@ -868,7 +918,6 @@ func (a *App) SafelyCall(vc reflect.Value, method string, args []reflect.Value) 
 			}
 		}
 	}()
-	fn := vc.MethodByName(method)
 	if fn.Type().NumIn() > 0 {
 		return fn.Call(args), err
 	}
