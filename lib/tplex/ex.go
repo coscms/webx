@@ -94,10 +94,6 @@ func (self *TemplateEx) TemplatePath(p string) string {
 func (self *TemplateEx) Fetch(tmplName string, fn func() htmlTpl.FuncMap, values interface{}) string {
 	tmplName += self.Ext
 	var tmpl *htmlTpl.Template
-	var funcMap htmlTpl.FuncMap
-	if fn != nil {
-		funcMap = fn()
-	}
 	tmplName = self.TemplatePath(tmplName)
 	cv, ok := self.CachedRelation[tmplName]
 	if !ok || cv.Tpl[0] == nil {
@@ -138,7 +134,6 @@ func (self *TemplateEx) Fetch(tmplName string, fn func() htmlTpl.FuncMap, values
 		content = self.ContainsSubTpl(content, &subcs)
 		t := htmlTpl.New(tmplName)
 		t.Delims(self.DelimLeft, self.DelimRight)
-		t.Funcs(funcMap)
 
 		tmpl, err = t.Parse(content)
 		if err != nil {
@@ -194,7 +189,9 @@ func (self *TemplateEx) Fetch(tmplName string, fn func() htmlTpl.FuncMap, values
 		}
 	} else {
 		tmpl = cv.Tpl[0]
-		tmpl.Funcs(funcMap)
+	}
+	if fn != nil {
+		tmpl.Funcs(fn())
 	}
 	return self.Parse(tmpl, values)
 }
