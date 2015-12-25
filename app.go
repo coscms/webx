@@ -74,7 +74,7 @@ type App struct {
 	Config             *CONF
 	Actions            map[string]interface{}
 	ActionsPath        map[reflect.Type]string
-	Controllers        map[reflect.Type]sync.Pool
+	Controllers        map[reflect.Type]*sync.Pool
 	ActionsNamePath    map[string]string
 	ActionsMethodRoute map[string]map[string]string
 	FuncMaps           template.FuncMap
@@ -87,7 +87,7 @@ type App struct {
 	TemplateEx         *tplex.TemplateEx
 	ContentEncoding    string
 	RequestTime        time.Time
-	actionPool         sync.Pool
+	actionPool         *sync.Pool
 	Cryptor
 	XsrfManager
 }
@@ -141,7 +141,7 @@ func NewApp(path string, name string) *App {
 		Config:             NewCONF(),
 		Actions:            map[string]interface{}{},
 		ActionsPath:        map[reflect.Type]string{},
-		Controllers:        map[reflect.Type]sync.Pool{},
+		Controllers:        map[reflect.Type]*sync.Pool{},
 		ActionsNamePath:    map[string]string{},
 		ActionsMethodRoute: make(map[string]map[string]string),
 		FuncMaps:           DefaultFuncs,
@@ -150,8 +150,9 @@ func NewApp(path string, name string) *App {
 		StaticVerMgr:       DefaultStaticVerMgr,
 		Cryptor:            DefaultCryptor,
 		XsrfManager:        DefaultXsrfManager,
+		actionPool:         &sync.Pool{},
 	}
-	app.actionPool.New = func() interface{} {
+	(*app.actionPool).New = func() interface{} {
 		return &Action{
 			App: app,
 			T:   T{},
@@ -614,7 +615,8 @@ func (a *App) run(req *http.Request, w http.ResponseWriter,
 	isBreak = true
 	pool, ok := a.Controllers[reflectType]
 	if !ok {
-		pool.New = func() interface{} {
+		pool = &sync.Pool{}
+		(*pool).New = func() interface{} {
 			ref := &Reflected{
 				NameV:        reflect.ValueOf(reflectType.Name()),
 				StructV:      reflect.New(reflectType),
@@ -646,10 +648,10 @@ func (a *App) run(req *http.Request, w http.ResponseWriter,
 		a.Controllers[reflectType] = pool
 	}
 
-	ref := pool.Get().(*Reflected)
-	defer pool.Put(ref)
+	ref := (*pool).Get().(*Reflected)
+	defer (*pool).Put(ref)
 
-	c := a.actionPool.Get().(*Action)
+	c := (*a.actionPool).Get().(*Action)
 	c.Request = req
 	c.ResponseWriter = w
 	c.ExtensionName = extensionName
@@ -659,7 +661,7 @@ func (a *App) run(req *http.Request, w http.ResponseWriter,
 	c.session = nil
 	c.T = T{}
 	c.f = T{}
-	defer a.actionPool.Put(c)
+	defer (*a.actionPool).Put(c)
 
 	for k, v := range args {
 		c.args[k] = v.String()
