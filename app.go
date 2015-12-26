@@ -186,6 +186,22 @@ func (a *App) initApp() {
 	}
 	if isRootApp || a.Server.RootApp.AppConfig.TemplateDir != a.AppConfig.TemplateDir {
 		a.TemplateEx = tplex.New(a.Logger, a.AppConfig.TemplateDir, a.AppConfig.CacheTemplates, a.AppConfig.ReloadTemplates)
+		a.TemplateEx.TemplatePathParser = func(tmplPath string) string {
+			if len(tmplPath) > 2 && tmplPath[1] == ':' {
+				switch tmplPath[0] {
+				case '#':
+					tmplPath = "#shared/" + tmplPath[2:]
+				case '.':
+					tmplPath = a.Name + "/" + tmplPath[2:]
+				case '^':
+					return tmplPath[2:]
+				}
+			}
+			if a.AppConfig.TemplateTheme != "" {
+				tmplPath = a.AppConfig.TemplateTheme + "/" + tmplPath
+			}
+			return tmplPath
+		}
 	} else {
 		a.TemplateEx = a.Server.RootApp.TemplateEx
 	}

@@ -610,9 +610,15 @@ type ActionInformation struct {
 	ContentByte   *[]byte
 }
 
-// Include method provide to template for {{include "xx.tmpl"}}
-func (c *Action) Include(tmplName string) interface{} {
-	return c.App.TemplateEx.Include(tmplName, c.GetFuncs, c.C.Elem().Interface())
+// Include method provide to template for {{include "webx"}}
+func (c *Action) Include(tmplName string, args ...interface{}) interface{} {
+	var v interface{}
+	if len(args) > 0 {
+		v = args[0]
+	} else {
+		v = c.C.Elem().Interface()
+	}
+	return c.App.TemplateEx.Include(tmplName, c.GetFuncs, v)
 }
 
 func (c *Action) setTemplateData(params ...*T) {

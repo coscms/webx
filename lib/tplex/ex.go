@@ -92,7 +92,7 @@ func (self *TemplateEx) TemplatePath(p string) string {
 }
 
 func (self *TemplateEx) Fetch(tmplName string, fn func() htmlTpl.FuncMap, values interface{}) string {
-	tmplName += self.Ext
+	tmplName = tmplName + self.Ext
 	var tmpl *htmlTpl.Template
 	var funcMap htmlTpl.FuncMap
 	if fn != nil {
