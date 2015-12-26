@@ -639,7 +639,7 @@ func (c *Action) NamedRender(name, content string, params ...*T) error {
 	tmpl := template.New(name)
 	tmpl.Funcs(c.GetFuncs())
 
-	Event("BeforeRender", &ActionInformation{c, &content, nil}, func(_ bool) {})
+	Event("webx:beforeRender", &ActionInformation{c, &content, nil}, func(_ bool) {})
 
 	tmpl, err := tmpl.Parse(content)
 	if err != nil {
@@ -648,7 +648,7 @@ func (c *Action) NamedRender(name, content string, params ...*T) error {
 	}
 	content = c.App.TemplateEx.Parse(tmpl, c.C.Elem().Interface())
 	b := []byte(content)
-	Event("AfterRender", &ActionInformation{c, nil, &b}, func(result bool) {
+	Event("webx:afterRender", &ActionInformation{c, nil, &b}, func(result bool) {
 		if result {
 			err = c.SetBody(b)
 		}
@@ -665,7 +665,7 @@ func (c *Action) Render(tmpl string, params ...*T) (err error) {
 	c.setTemplateData(params...)
 	content := c.App.TemplateEx.Fetch(tmpl, c.GetFuncs, c.C.Elem().Interface())
 	b := []byte(content)
-	Event("AfterRender", &ActionInformation{c, nil, &b}, func(result bool) {
+	Event("webx:afterRender", &ActionInformation{c, nil, &b}, func(result bool) {
 		if result {
 			err = c.SetBody(b)
 		}

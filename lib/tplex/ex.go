@@ -244,9 +244,9 @@ func (self *TemplateEx) ContainsSubTpl(content string, subcs *map[string]string)
 				return fmt.Sprintf("RenderTemplate %v read err: %s", tmplFile, err)
 			}
 			str := string(b)
+			(*subcs)[tmplFile] = "" //先登记，避免死循环
 			str = self.ContainsSubTpl(str, subcs)
-			sub := self.Tag(`define "`+tmplFile+`"`) + str + self.Tag(`end`)
-			(*subcs)[tmplFile] = sub
+			(*subcs)[tmplFile] = self.Tag(`define "`+tmplFile+`"`) + str + self.Tag(`end`)
 		}
 		if passObject == "" {
 			passObject = "."

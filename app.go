@@ -113,6 +113,8 @@ type AppConfig struct {
 	Mode              int
 	StaticDir         string
 	TemplateDir       string
+	TemplateTheme     string
+	TemplateStyle     string
 	SessionOn         bool
 	MaxUploadSize     int64
 	CookieSecret      string
@@ -814,7 +816,7 @@ func (a *App) run(req *http.Request, w http.ResponseWriter,
 		content = byt
 	} else {
 		var validType bool
-		Event("OutputBaseOnExtensionName", []interface{}{c, intf}, func(ok bool) {
+		Event("webx:outputBaseonExtension", []interface{}{c, intf}, func(ok bool) {
 			if !ok {
 				validType = true
 				return

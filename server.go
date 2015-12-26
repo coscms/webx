@@ -140,10 +140,15 @@ func (s *Server) initServer() {
 		s.Config = &ServerConfig{}
 		s.Config.Profiler = true
 	}
-
-	for _, app := range s.Apps {
-		app.initApp()
-	}
+	Event("webx."+s.Name+":initServer", s, func(r bool) {
+		if !r {
+			return
+		}
+		for _, app := range s.Apps {
+			app.initApp()
+			Event("webx."+s.Name+"."+app.Name+":initApp", app, func(_ bool) {})
+		}
+	})
 }
 
 // ServeHTTP is the interface method for Go's http server package
@@ -166,7 +171,7 @@ func (s *Server) Process(w http.ResponseWriter, req *http.Request) {
 	w.Header().Set("Server", "webx v"+Version)
 	w.Header().Set("Date", webTime(s.RootApp.RequestTime.UTC()))
 
-	Event("ServerProcess", &ServerInformation{s, w, req}, func(result bool) {
+	Event("webx:process", &ServerInformation{s, w, req}, func(result bool) {
 		if !result {
 			return
 		}
@@ -279,7 +284,7 @@ func (s *Server) run(addr string, l net.Listener) (err error) {
 
 	}
 	s.Mux = mux
-	Event("MuxHandle", s, func(result bool) {
+	Event("webx:muxHandle", s, func(result bool) {
 		if result {
 			mux.Handle("/", s)
 		}
