@@ -27,7 +27,7 @@ import (
 
 var (
 	mapperType = reflect.TypeOf(Mapper{})
-	urlTmplRgx = regexp.MustCompile(`\(([^}]*)\{[^}]+\}([^}]*)\)`)
+	urlTmplRgx = regexp.MustCompile(`\(([^}]*)\{([^}]+)\}([^}]*)\)`)
 )
 
 type Mapper struct{}
