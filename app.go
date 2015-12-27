@@ -6,6 +6,7 @@ import (
 	"html/template"
 	"io/ioutil"
 	"net/http"
+	"net/url"
 	"os"
 	"path"
 	"path/filepath"
@@ -26,7 +27,57 @@ import (
 
 var (
 	mapperType = reflect.TypeOf(Mapper{})
+	urlTmplRgx = regexp.MustCompile(`\(([^}]*)\{[^}]+\}([^}]*)\)`)
 )
+
+type Mapper struct{}
+
+func NewTagMapper(rawUrl string) *TagMapper {
+	return &TagMapper{
+		RawUrl: rawUrl,
+		Mapper: make(map[string][2]string),
+	}
+}
+
+type TagMapper struct {
+	RawUrl string
+	Mapper map[string][2]string
+	Memo   string
+}
+
+func (m *TagMapper) GenUrl(vals interface{}) (r string) {
+	r = m.RawUrl
+	if r == "" {
+		return
+	}
+	switch vals.(type) {
+	case url.Values:
+		val := vals.(url.Values)
+		for name, mapper := range m.Mapper {
+			r = m.Replace(r, val.Get(name), mapper)
+		}
+	case map[string]string:
+		val := vals.(map[string]string)
+		for name, mapper := range m.Mapper {
+			v, _ := val[name]
+			r = m.Replace(r, v, mapper)
+		}
+	default:
+		for _, mapper := range m.Mapper {
+			r = m.Replace(r, "", mapper)
+		}
+	}
+	return
+}
+
+func (m *TagMapper) Replace(r string, v string, mapper [2]string) string {
+	if v == "" {
+		r = strings.Replace(r, mapper[0], v, -1)
+	} else {
+		r = strings.Replace(r, mapper[0], fmt.Sprintf(mapper[1], v), -1)
+	}
+	return r
+}
 
 type JSON struct {
 	Data interface{}
@@ -64,30 +115,31 @@ const (
 )
 
 type App struct {
-	BasePath           string
-	Name               string
-	Domain             string
-	Route              *route.Route
-	filters            []Filter
-	Server             *Server
-	AppConfig          *AppConfig
-	Config             *CONF
-	Actions            map[string]interface{}
-	ActionsPath        map[reflect.Type]string
-	Controllers        map[reflect.Type]*sync.Pool
-	ActionsNamePath    map[string]string
-	ActionsMethodRoute map[string]map[string]string
-	FuncMaps           template.FuncMap
-	Logger             *log.Logger
-	VarMaps            T
-	SessionManager     *httpsession.Manager //Session manager
-	RootTemplate       *template.Template
-	ErrorTemplate      *template.Template
-	StaticVerMgr       *StaticVerMgr
-	TemplateEx         *tplex.TemplateEx
-	ContentEncoding    string
-	RequestTime        time.Time
-	actionPool         *sync.Pool
+	BasePath        string
+	Name            string
+	Domain          string
+	Route           *route.Route
+	filters         []Filter
+	Server          *Server
+	AppConfig       *AppConfig
+	Config          *CONF
+	Actions         map[string]interface{}
+	ReflectedType   map[string]reflect.Type
+	Controllers     map[reflect.Type]*sync.Pool
+	Urls            map[reflect.Type]map[string]*TagMapper
+	FuncMaps        template.FuncMap
+	Logger          *log.Logger
+	VarMaps         T
+	SessionManager  *httpsession.Manager //Session manager
+	RootTemplate    *template.Template
+	ErrorTemplate   *template.Template
+	StaticVerMgr    *StaticVerMgr
+	TemplateEx      *tplex.TemplateEx
+	ContentEncoding string
+	RequestTime     time.Time
+	actionPool      *sync.Pool
+	RouteValidator  func(*App, string) (string, error)
+	ActionValidator func(*App, reflect.Type, reflect.Value) bool
 	Cryptor
 	XsrfManager
 }
@@ -136,23 +188,22 @@ type AppConfig struct {
 
 func NewApp(path string, name string) *App {
 	app := &App{
-		BasePath:           path,
-		Name:               name,
-		Route:              route.NewRoute(),
-		AppConfig:          NewAppConfig(),
-		Config:             NewCONF(),
-		Actions:            map[string]interface{}{},
-		ActionsPath:        map[reflect.Type]string{},
-		Controllers:        map[reflect.Type]*sync.Pool{},
-		ActionsNamePath:    map[string]string{},
-		ActionsMethodRoute: make(map[string]map[string]string),
-		FuncMaps:           DefaultFuncs,
-		VarMaps:            T{},
-		filters:            make([]Filter, 0),
-		StaticVerMgr:       DefaultStaticVerMgr,
-		Cryptor:            DefaultCryptor,
-		XsrfManager:        DefaultXsrfManager,
-		actionPool:         &sync.Pool{},
+		BasePath:      path,
+		Name:          name,
+		Route:         route.NewRoute(),
+		AppConfig:     NewAppConfig(),
+		Config:        NewCONF(),
+		Actions:       map[string]interface{}{},
+		ReflectedType: map[string]reflect.Type{},
+		Controllers:   map[reflect.Type]*sync.Pool{},
+		Urls:          make(map[reflect.Type]map[string]*TagMapper),
+		FuncMaps:      DefaultFuncs,
+		VarMaps:       T{},
+		filters:       make([]Filter, 0),
+		StaticVerMgr:  DefaultStaticVerMgr,
+		Cryptor:       DefaultCryptor,
+		XsrfManager:   DefaultXsrfManager,
+		actionPool:    &sync.Pool{},
 	}
 	(*app.actionPool).New = func() interface{} {
 		return &Action{
@@ -295,10 +346,8 @@ func (app *App) AddAction(cs ...interface{}) {
 func (app *App) AutoAction(cs ...interface{}) {
 	for _, c := range cs {
 		t := reflect.Indirect(reflect.ValueOf(c)).Type()
-		name := t.Name()
-		if strings.HasSuffix(name, "Action") {
-			path := strings.ToLower(name[:len(name)-6])
-			app.AddRouter("/"+path, c)
+		if strings.HasSuffix(t.Name(), "Action") {
+			app.AddRouter("/", c)
 		} else {
 			app.Warn("AutoAction needs a named ends with Action")
 		}
@@ -389,13 +438,17 @@ func (app *App) filter(w http.ResponseWriter, req *http.Request) bool {
 func (app *App) AddRouter(url string, c interface{}) {
 	t := reflect.TypeOf(c).Elem()
 	v := reflect.ValueOf(c)
+	if app.ActionValidator != nil && !app.ActionValidator(app, t, v) {
+		return
+	}
+
 	actionFullName := t.Name()
 	actionShortName := strings.TrimSuffix(actionFullName, "Action")
 	actionShortName = strings.ToLower(actionShortName)
-	app.ActionsPath[t] = url
+	app.ReflectedType[actionFullName] = t
 	app.Actions[actionFullName] = c
-	app.ActionsNamePath[actionFullName] = url
-	app.ActionsMethodRoute[actionFullName] = make(map[string]string)
+	app.Urls[t] = make(map[string]*TagMapper)
+	url = strings.TrimRight(url, "/")
 
 	for i := 0; i < t.NumField(); i++ {
 		if t.Field(i).Type != mapperType {
@@ -408,7 +461,17 @@ func (app *App) AddRouter(url string, c interface{}) {
 			continue
 		}
 
+		//支持的tag:
+		// 1. webx - 路由规则
+		// 2. tmpl - 网址生成模板，带参数名称。
+		//    括号部分会被完整替换，用花括号括起来的部分为参数名，它会被替换为该参数的值
+		// 3. memo - 注释说明
+		//`webx:"list_(\\d+)(?:_(\\d+))?" tmpl:"list_({cid})(_{page})" memo:"列表页"`
+		//`webx:"index(?:_(\\d+)){0,2}" tmpl:"index(_{id})(_{page})" memo:"首页"`
+		tagMapper := NewTagMapper("")
 		tag := t.Field(i).Tag
+		tagMapper.Memo = tag.Get("memo")
+		tagMapper.RawUrl = tag.Get("tmpl")
 		tagStr := tag.Get("webx")
 		methods := map[string]bool{}    //map[string]bool{"GET": true, "POST": true}
 		extensions := map[string]bool{} //map[string]bool{"HTML": true, "JSON": true}
@@ -441,11 +504,25 @@ func (app *App) AddRouter(url string, c interface{}) {
 			} else {
 				path = "/" + actionShortName + "/" + name
 			}
-			p = strings.TrimRight(url, "/") + path
+			p = url + path
 		} else {
-			p = strings.TrimRight(url, "/") + "/" + actionShortName + "/" + name
+			p = url + "/" + actionShortName + "/" + name
 		}
-		p = removeStick(p)
+
+		if tagMapper.RawUrl != "" {
+			if tagMapper.RawUrl[0] != '/' {
+				tagMapper.RawUrl = "/" + actionShortName + "/" + tagMapper.RawUrl
+			}
+			tagMapper.RawUrl = url + tagMapper.RawUrl
+			sr := urlTmplRgx.FindAllStringSubmatch(tagMapper.RawUrl, -1)
+			for _, rr := range sr {
+				matched := rr[0]
+				prefix := rr[1]
+				varname := rr[2]
+				suffix := rr[3]
+				tagMapper.Mapper[varname] = [2]string{matched, prefix + `%v` + suffix}
+			}
+		}
 
 		methodsStr := ""
 		extensionsStr := ""
@@ -484,6 +561,15 @@ func (app *App) AddRouter(url string, c interface{}) {
 				}
 			}
 		}
+
+		if app.RouteValidator != nil {
+			if path, err := app.RouteValidator(app, p); err == nil {
+				p = path
+			} else {
+				continue
+			}
+		}
+		app.Urls[t][name] = tagMapper
 		app.Route.Set(p, a, methods, extensions, group, t)
 		app.Debug("Action:", actionFullName+"."+a+";", "Route Information:", p+";", "Request Method:", methods)
 	}

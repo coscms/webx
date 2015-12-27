@@ -132,3 +132,23 @@ func (r *Route) Rego(vOriginal string, vNew string) (length int, staticPath stri
 	//println(vOriginal, staticPath, vOriginal[length:])
 	return
 }
+
+func (r *Route) Exists(regPath string) (exists bool) {
+	_, exists = r.Static[regPath]
+	if !exists {
+		length := len(regPath)
+		for _, route := range r.Regexp {
+			if route.StaticLength >= length || regPath[0:route.StaticLength] != route.StaticPath {
+				continue
+			}
+			part := regPath[route.StaticLength:]
+			match := route.Regexp.FindStringSubmatch(part)
+			if len(match) < 1 || match[0] != part {
+				continue
+			}
+			exists = true
+			break
+		}
+	}
+	return
+}

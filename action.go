@@ -27,8 +27,6 @@ import (
 	"github.com/coscms/webx/lib/uuid"
 )
 
-type Mapper struct{}
-
 type T map[string]interface{}
 
 type ActionOption struct {
@@ -520,27 +518,56 @@ func (c *Action) Method() string {
 }
 
 func (c *Action) Go(m string, anotherc ...interface{}) error {
-	var t reflect.Type
+	var jurl string
 	if len(anotherc) > 0 {
-		t = reflect.TypeOf(anotherc[0]).Elem()
+		jurl = c.BuildUrl(m, anotherc[0])
 	} else {
-		t = reflect.TypeOf(c.C.Interface()).Elem()
+		jurl = c.BuildUrl(m, nil)
 	}
-
-	if _, ok := c.App.ActionsPath[t]; !ok {
+	if jurl == "" {
 		return NotFound()
+	}
+	return c.Redirect(jurl)
+}
+
+//{{"action"|.BuildUrl "list?name=webx"}}
+func (c *Action) BuildUrl(m string, obj interface{}) (jurl string) {
+	var t reflect.Type
+	switch obj.(type) {
+	case string:
+		name := obj.(string)
+		if !strings.HasSuffix(name, "Action") {
+			name = strings.Title(name) + "Action"
+		}
+		var ok bool
+		t, ok = c.App.ReflectedType[name]
+		if !ok {
+			return
+		}
+	case nil:
+		t = c.C.Type()
+	default:
+		t = reflect.TypeOf(obj)
+		if t.Kind() == reflect.Ptr {
+			t = t.Elem()
+		}
+	}
+	urls, ok := c.App.Urls[t]
+	if !ok {
+		return
 	}
 
 	uris := strings.Split(m, "?")
 
-	actionFullName := t.Name()
-
-	if mr, ok := c.App.ActionsMethodRoute[actionFullName]; ok {
-		if r, ok := mr[uris[0]]; ok {
-			return c.Redirect(r)
+	if r, ok := urls[uris[0]]; ok {
+		if len(uris) > 1 {
+			vals, _ := url.ParseQuery(uris[1])
+			jurl = r.GenUrl(vals)
+		} else {
+			jurl = r.GenUrl(map[string]string{})
 		}
 	}
-	return NotFound()
+	return
 }
 
 func (c *Action) Flush() {
@@ -553,7 +580,7 @@ func (c *Action) BasePath() string {
 }
 
 func (c *Action) Namespace() string {
-	return c.App.ActionsPath[c.C.Type()]
+	return c.C.Type().Name()
 }
 
 func (c *Action) Debug(params ...interface{}) {
