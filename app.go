@@ -27,6 +27,8 @@ import (
 
 var (
 	mapperType = reflect.TypeOf(Mapper{})
+
+	//解析网址模板中的参数名。匹配: ({name}) / (a{name}b)
 	urlTmplRgx = regexp.MustCompile(`\(([^}]*)\{([^}]+)\}([^}]*)\)`)
 )
 
@@ -35,7 +37,7 @@ type Mapper struct{}
 func NewTagMapper(rawUrl string) *TagMapper {
 	return &TagMapper{
 		RawUrl: rawUrl,
-		Mapper: make(map[string][2]string),
+		Mapper: make(map[string][2]string), //0:匹配到的整个字串；1:网址模板"a%vb"
 	}
 }
 
