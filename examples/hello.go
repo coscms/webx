@@ -7,10 +7,11 @@ import (
 type MainAction struct {
 	*webx.Action
 
-	hello webx.Mapper `webx:"/(.*)"`
+	hello webx.Mapper `webx:"/(.*)" tmpl:"/index(_{page})" memo:"演示首页"`
 }
 
 func (c *MainAction) Hello(world string) {
+	world += ": " + c.BuildUrl("hello?page=10", c)
 	c.Write("hello %v", world)
 }
 
