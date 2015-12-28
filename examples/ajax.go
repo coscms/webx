@@ -73,7 +73,7 @@ type MainAction struct {
 	*webx.Action
 
 	home  webx.Mapper `webx:"/"`
-	login webx.Mapper
+	login webx.Mapper `webx:"/login"`
 	User  User
 }
 

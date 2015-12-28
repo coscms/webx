@@ -29,10 +29,10 @@ type CookieAction struct {
 	*webx.Action
 
 	index  webx.Mapper `webx:"/"`
-	update webx.Mapper
+	update webx.Mapper `webx:"/update"`
 }
 
-func (this *CookieAction) Index() string {
+func (this *CookieAction) Index() {
 	cookie, _ := this.GetCookie(cookieName)
 	var top string
 	if cookie == nil {
@@ -41,7 +41,7 @@ func (this *CookieAction) Index() string {
 		var val = html.EscapeString(cookie.Value)
 		top = fmt.Sprintf(notice, "The value of the cookie is '"+val+"'.")
 	}
-	return top + form
+	this.RenderString(top + form)
 }
 
 func (this *CookieAction) Update() {

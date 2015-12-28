@@ -1,6 +1,8 @@
 package main
 
 import (
+	"fmt"
+
 	"github.com/coscms/webx"
 )
 
@@ -29,10 +31,15 @@ type MainAction struct {
 	Inputs []string
 }
 
+func (c *MainAction) Init() {
+	c.Option.CheckXsrf = false
+}
+
 func (c *MainAction) Upload() {
 	if c.Method() == "GET" {
 		c.Write(page)
 	} else if c.Method() == "POST" {
+		fmt.Printf("%#v\n", c.Inputs)
 		for i, input := range c.Inputs {
 			c.Write("<p>input %v: %v </p>", i, input)
 		}
