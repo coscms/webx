@@ -15,8 +15,9 @@ type MainAction struct {
 	hello webx.Mapper `webx:"/(.*)"`
 }
 
-func (c *MainAction) Hello(world string) {
+func (c *MainAction) Hello(world string) bool {
 	c.Write("hello %v", world)
+	return true
 }
 
 func (c *MainAction) Before(structName, actionName string) bool {

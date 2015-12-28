@@ -6,6 +6,7 @@ import (
 	"io/ioutil"
 	"net/http"
 	"net/url"
+	"strings"
 
 	"github.com/coscms/webx"
 )
@@ -33,7 +34,19 @@ type MainAction struct {
 	Keys2 []int
 }
 
+func format(r string) string {
+	r = strings.Replace(r, "{", "{\n", -1)
+	r = strings.Replace(r, "}", "\n}", -1)
+	r = strings.Replace(r, ",", ",\n", -1)
+	return r
+}
+
 func (c *MainAction) Get() {
+	//r := fmt.Sprintf("%#v", c)
+	//fmt.Println(format(r))
+	//r = fmt.Sprintf("%#v\n", c.Request.Form)
+	//fmt.Println(format(r))
+
 	right := (*c.Key == "Value" && *c.Id == 123 && c.User.Id == 2 &&
 		*c.User2.PtrId == 3 && c.User2.Id == 4 && c.User2.Child.Id == 66)
 	if right {
@@ -70,7 +83,7 @@ func main() {
 	}
 
 	fmt.Println(string(bytes))
-
+	_ = bytes
 	var s chan int
 	<-s
 }
