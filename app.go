@@ -798,7 +798,7 @@ func (a *App) run(req *http.Request, w http.ResponseWriter,
 
 	//表单数据自动映射到结构体
 	if c.Option.AutoMapForm {
-		a.StructMap(vc, req)
+		a.StructMap(vc.Interface(), req)
 	}
 
 	//验证XSRF
@@ -1148,6 +1148,7 @@ func (a *App) namedStructMap(m interface{}, r *http.Request, topName string) err
 	}
 
 	for k, t := range r.Form {
+
 		if k == XSRF_TAG || k == "" {
 			continue
 		}
@@ -1162,24 +1163,26 @@ func (a *App) namedStructMap(m interface{}, r *http.Request, topName string) err
 		v := t[0]
 		names := strings.Split(k, ".")
 		var err error
-		if len(names) == 1 {
+		length := len(names)
+		if length == 1 {
 			names, err = SplitJson(k)
 			if err != nil {
 				a.Warn("Unrecognize form key", k, err)
 				continue
 			}
 		}
-
+		length = len(names)
 		var value reflect.Value = vc
 		for i, name := range names {
 			name = strings.Title(name)
-			if i != len(names)-1 {
+
+			//不是最后一个元素
+			if i != length-1 {
 				if value.Kind() != reflect.Struct {
 					a.Warnf("arg error, value kind is %v", value.Kind())
 					break
 				}
 
-				//fmt.Println(name)
 				value = value.FieldByName(name)
 				if !value.IsValid() {
 					a.Warnf("(%v value is not valid %v)", name, value)
@@ -1327,6 +1330,8 @@ func (a *App) namedStructMap(m interface{}, r *http.Request, topName string) err
 							if err == nil {
 								tv.Index(i).SetBool(v)
 							}
+						case reflect.String:
+							tv.Index(i).SetString(s)
 						case reflect.Complex64, reflect.Complex128:
 							// TODO:
 							err = fmt.Errorf("unsupported slice element type %v", tk.String())
