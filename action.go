@@ -401,14 +401,11 @@ func (c *Action) NotFound(message string) error {
 //		err := action.MapForm(&user)
 //
 func (c *Action) MapForm(st interface{}, names ...string) error {
-	v := reflect.ValueOf(st)
 	var name string
-	if len(names) == 0 {
-		name = UnTitle(v.Type().Elem().Name())
-	} else {
+	if len(names) > 0 {
 		name = names[0]
 	}
-	return c.App.namedStructMap(v.Elem(), c.Request, name)
+	return c.App.namedStructMap(st, c.Request, name)
 }
 
 // ContentType sets the Content-Type header for an HTTP response.

@@ -40,7 +40,7 @@ func (c *MainAction) Parse() error {
 		return c.Write(page)
 	} else if c.Method() == "POST" {
 		var user User
-		err := c.MapForm(&user)
+		err := c.MapForm(&user, "user")
 		if err != nil {
 			return err
 		}

@@ -1294,10 +1294,6 @@ func (a *App) namedStructMap(m interface{}, r *http.Request, topName string) err
 				case reflect.Slice, reflect.Array:
 					tt := tv.Type().Elem()
 					tk := tt.Kind()
-					if tk == reflect.String {
-						tv.Set(reflect.ValueOf(t))
-						break
-					}
 
 					if tv.IsNil() {
 						tv.Set(reflect.MakeSlice(tv.Type(), len(t), len(t)))

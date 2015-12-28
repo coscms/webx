@@ -35,6 +35,10 @@ type MainAction struct {
 	Input2 string
 }
 
+func (c *MainAction) Init() {
+	c.Option.CheckXsrf = false
+}
+
 func (c *MainAction) Upload() {
 	if c.Method() == "GET" {
 		c.Write(page)

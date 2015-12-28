@@ -39,10 +39,11 @@ func (c *MainAction) Upload() {
 	if c.Method() == "GET" {
 		c.Write(page)
 	} else if c.Method() == "POST" {
-		fmt.Printf("%#v\n", c.Inputs)
+		output := ""
 		for i, input := range c.Inputs {
-			c.Write("<p>input %v: %v </p>", i, input)
+			output += fmt.Sprintf("input %v: %v <br />", i, input)
 		}
+		c.Write(output)
 	}
 }
 

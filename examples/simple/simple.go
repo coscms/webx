@@ -6,7 +6,7 @@ import (
 	"os"
 
 	"github.com/coscms/webx"
-	"github.com/go-xorm/xorm"
+	"github.com/coscms/xorm"
 	_ "github.com/mattn/go-sqlite3"
 )
 
