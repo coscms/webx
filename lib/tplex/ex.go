@@ -26,6 +26,7 @@ func New(logger *log.Logger, templateDir string, cached ...bool) *TemplateEx {
 		IncludeTag:     "Include",
 		ExtendTag:      "Extend",
 		BlockTag:       "Block",
+		SuperTag:       "Super",
 		Ext:            ".html",
 	}
 	mgrCtlLen := len(cached)
@@ -80,6 +81,7 @@ type TemplateEx struct {
 	IncludeTag         string
 	ExtendTag          string
 	BlockTag           string
+	SuperTag           string
 	Ext                string
 	TemplatePathParser func(string) string
 }
@@ -213,14 +215,28 @@ func (self *TemplateEx) ParseExtend(content string, extcs *map[string]string, pa
 		passObject = "."
 	}
 	matches := self.blkTagRegex.FindAllStringSubmatch(content, -1)
+	var superTag string
+	if self.SuperTag != "" {
+		superTag = self.Tag(self.SuperTag)
+	}
+	var rec map[string]uint8 = make(map[string]uint8)
 	for _, v := range matches {
 		matched := v[0]
 		blockName := v[1]
 		innerStr := v[2]
-		if _, ok := (*extcs)[blockName]; ok {
+		if v, ok := (*extcs)[blockName]; ok {
+			rec[blockName] = 0
+			if superTag != "" && strings.Contains(v, superTag) {
+				(*extcs)[blockName] = strings.Replace(v, superTag, innerStr, 1)
+			}
 			content = strings.Replace(content, matched, self.Tag(`template "`+blockName+`" `+passObject), -1)
 		} else {
 			content = strings.Replace(content, matched, innerStr, -1)
+		}
+	}
+	for k, _ := range *extcs {
+		if _, ok := rec[k]; !ok {
+			delete(*extcs, k)
 		}
 	}
 	return content
