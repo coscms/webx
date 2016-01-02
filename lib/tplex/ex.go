@@ -59,6 +59,7 @@ func New(logger *log.Logger, templateDir string, cached ...bool) *TemplateEx {
 		}
 		t.TemplateMgr.Init(logger, templateDir, reloadTemplates)
 	}
+	t.InitRegexp()
 	return t
 }
 
@@ -84,6 +85,7 @@ type TemplateEx struct {
 	SuperTag           string
 	Ext                string
 	TemplatePathParser func(string) string
+	Debug              bool
 }
 
 func (self *TemplateEx) TemplatePath(p string) string {
@@ -91,6 +93,25 @@ func (self *TemplateEx) TemplatePath(p string) string {
 		return p
 	}
 	return self.TemplatePathParser(p)
+}
+
+func (self *TemplateEx) echo(messages ...string) {
+	if self.Debug {
+		var message string
+		for _, v := range messages {
+			message += v + ` `
+		}
+		fmt.Println(`[tplex]`, message)
+	}
+}
+
+func (self *TemplateEx) InitRegexp() {
+	left := regexp.QuoteMeta(self.DelimLeft)
+	right := regexp.QuoteMeta(self.DelimRight)
+	rfirst := regexp.QuoteMeta(self.DelimRight[0:1])
+	self.incTagRegex = regexp.MustCompile(left + self.IncludeTag + `[\s]+"([^"]+)"(?:[\s]+([^` + rfirst + `]+))?[\s]*` + right)
+	self.extTagRegex = regexp.MustCompile(left + self.ExtendTag + `[\s]+"([^"]+)"(?:[\s]+([^` + rfirst + `]+))?[\s]*` + right)
+	self.blkTagRegex = regexp.MustCompile(`(?s)` + left + self.BlockTag + `[\s]+"([^"]+)"[\s]*` + right + `(.*?)` + left + `\/` + self.BlockTag + right)
 }
 
 func (self *TemplateEx) Fetch(tmplName string, fn func() htmlTpl.FuncMap, values interface{}) string {
@@ -103,6 +124,7 @@ func (self *TemplateEx) Fetch(tmplName string, fn func() htmlTpl.FuncMap, values
 	tmplName = self.TemplatePath(tmplName)
 	cv, ok := self.CachedRelation[tmplName]
 	if !ok || cv.Tpl[0] == nil {
+		self.echo(`Read not cached template content:`, tmplName)
 		b, err := self.RawContent(tmplName)
 		if err != nil {
 			return fmt.Sprintf("RenderTemplate %v read err: %s", tmplName, err)
@@ -117,12 +139,7 @@ func (self *TemplateEx) Fetch(tmplName string, fn func() htmlTpl.FuncMap, values
 
 		ident := self.DelimLeft + self.IncludeTag + self.DelimRight
 		if self.cachedRegexIdent != ident || self.incTagRegex == nil {
-			left := regexp.QuoteMeta(self.DelimLeft)
-			right := regexp.QuoteMeta(self.DelimRight)
-			rfirst := regexp.QuoteMeta(self.DelimRight[0:1])
-			self.incTagRegex = regexp.MustCompile(left + self.IncludeTag + `[\s]+"([^"]+)"(?:[\s]+([^` + rfirst + `]+))?[\s]*` + right)
-			self.extTagRegex = regexp.MustCompile(left + self.ExtendTag + `[\s]+"([^"]+)"(?:[\s]+([^` + rfirst + `]+))?[\s]*` + right)
-			self.blkTagRegex = regexp.MustCompile(`(?s)` + left + self.BlockTag + `[\s]+"([^"]+)"[\s]*` + right + `(.*?)` + left + `\/` + self.BlockTag + right)
+			InitRegexp()
 		}
 		m := self.extTagRegex.FindAllStringSubmatch(content, 1)
 		if len(m) > 0 {
@@ -130,6 +147,7 @@ func (self *TemplateEx) Fetch(tmplName string, fn func() htmlTpl.FuncMap, values
 			extFile := m[0][1] + self.Ext
 			passObject := m[0][2]
 			extFile = self.TemplatePath(extFile)
+			self.echo(`Read layout template content:`, extFile)
 			b, err = self.RawContent(extFile)
 			if err != nil {
 				return fmt.Sprintf("RenderTemplate %v read err: %s", extFile, err)
@@ -141,7 +159,7 @@ func (self *TemplateEx) Fetch(tmplName string, fn func() htmlTpl.FuncMap, values
 		t := htmlTpl.New(tmplName)
 		t.Delims(self.DelimLeft, self.DelimRight)
 		t.Funcs(funcMap)
-
+		//self.echo(`The template content:`, content)
 		tmpl, err = t.Parse(content)
 		if err != nil {
 			return fmt.Sprintf("Parse %v err: %v", tmplName, err)
@@ -150,6 +168,7 @@ func (self *TemplateEx) Fetch(tmplName string, fn func() htmlTpl.FuncMap, values
 			v, ok := self.CachedRelation[name]
 			if ok && v.Tpl[1] != nil {
 				self.CachedRelation[name].Rel[tmplName] = 0
+				tmpl.AddParseTree(name, self.CachedRelation[name].Tpl[1].Tree)
 				continue
 			}
 			var t *htmlTpl.Template
@@ -165,6 +184,7 @@ func (self *TemplateEx) Fetch(tmplName string, fn func() htmlTpl.FuncMap, values
 			if err != nil {
 				return fmt.Sprintf("Parse File %v err: %v", name, err)
 			}
+
 			if ok {
 				self.CachedRelation[name].Rel[tmplName] = 0
 				self.CachedRelation[name].Tpl[1] = t
@@ -174,6 +194,7 @@ func (self *TemplateEx) Fetch(tmplName string, fn func() htmlTpl.FuncMap, values
 					Tpl: [2]*htmlTpl.Template{nil, t},
 				}
 			}
+
 		}
 		for name, extc := range extcs {
 			var t *htmlTpl.Template
@@ -190,13 +211,25 @@ func (self *TemplateEx) Fetch(tmplName string, fn func() htmlTpl.FuncMap, values
 				return fmt.Sprintf("Parse Block %v err: %v", name, err)
 			}
 		}
+
 		self.CachedRelation[tmplName] = &CcRel{
 			Rel: map[string]uint8{tmplName: 0},
 			Tpl: [2]*htmlTpl.Template{tmpl, nil},
 		}
+
 	} else {
 		tmpl = cv.Tpl[0]
 		tmpl.Funcs(funcMap)
+		if self.Debug {
+			fmt.Println(`Using the template object to be cached:`, tmplName)
+			fmt.Println("_________________________________________")
+			fmt.Println("")
+			for k, v := range tmpl.Templates() {
+				fmt.Printf("%v. %#v\n", k, v.Name())
+			}
+			fmt.Println("_________________________________________")
+			fmt.Println("")
+		}
 	}
 	return self.Parse(tmpl, values)
 }
@@ -253,16 +286,16 @@ func (self *TemplateEx) ContainsSubTpl(content string, subcs *map[string]string)
 		if _, ok := (*subcs)[tmplFile]; !ok {
 			if v, ok := self.CachedRelation[tmplFile]; ok && v.Tpl[1] != nil {
 				(*subcs)[tmplFile] = ""
-				continue
+			} else {
+				b, err := self.RawContent(tmplFile)
+				if err != nil {
+					return fmt.Sprintf("RenderTemplate %v read err: %s", tmplFile, err)
+				}
+				str := string(b)
+				(*subcs)[tmplFile] = "" //先登记，避免死循环
+				str = self.ContainsSubTpl(str, subcs)
+				(*subcs)[tmplFile] = self.Tag(`define "`+tmplFile+`"`) + str + self.Tag(`end`)
 			}
-			b, err := self.RawContent(tmplFile)
-			if err != nil {
-				return fmt.Sprintf("RenderTemplate %v read err: %s", tmplFile, err)
-			}
-			str := string(b)
-			(*subcs)[tmplFile] = "" //先登记，避免死循环
-			str = self.ContainsSubTpl(str, subcs)
-			(*subcs)[tmplFile] = self.Tag(`define "`+tmplFile+`"`) + str + self.Tag(`end`)
 		}
 		if passObject == "" {
 			passObject = "."

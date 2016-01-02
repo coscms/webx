@@ -14,7 +14,7 @@ import (
 
 type TemplateMgr struct {
 	Caches           map[string][]byte
-	mutex            *sync.Mutex
+	Mutex            *sync.Mutex
 	RootDir          string
 	NewRoorDir       string
 	Ignores          map[string]bool
@@ -132,16 +132,16 @@ func (self *TemplateMgr) Moniter(rootDir string) error {
 
 func (self *TemplateMgr) OnChange(name, typ, event string) {
 	if self.OnChangeCallback != nil {
-		self.mutex.Lock()
-		defer self.mutex.Unlock()
+		self.Mutex.Lock()
+		defer self.Mutex.Unlock()
 		name = FixDirSeparator(name)
 		self.OnChangeCallback(name[len(self.RootDir)+1:], typ, event)
 	}
 }
 
 func (self *TemplateMgr) CacheAll(rootDir string) error {
-	self.mutex.Lock()
-	defer self.mutex.Unlock()
+	self.Mutex.Lock()
+	defer self.Mutex.Unlock()
 	fmt.Print("Reading the contents of the template files, please wait... ")
 	err := filepath.Walk(rootDir, func(f string, info os.FileInfo, err error) error {
 		if info.IsDir() {
@@ -213,7 +213,7 @@ func (self *TemplateMgr) Init(logger *log.Logger, rootDir string, reload bool) e
 	self.RootDir = rootDir
 	self.Caches = make(map[string][]byte)
 	self.Ignores = make(map[string]bool)
-	self.mutex = &sync.Mutex{}
+	self.Mutex = &sync.Mutex{}
 	self.Logger = logger
 	if dirExists(rootDir) {
 		//self.CacheAll(rootDir)
@@ -231,8 +231,8 @@ func (self *TemplateMgr) Init(logger *log.Logger, rootDir string, reload bool) e
 }
 
 func (self *TemplateMgr) GetTemplate(tmpl string) ([]byte, error) {
-	self.mutex.Lock()
-	defer self.mutex.Unlock()
+	self.Mutex.Lock()
+	defer self.Mutex.Unlock()
 	if content, ok := self.Caches[tmpl]; ok {
 		self.Logger.Debugf("load template %v from cache", tmpl)
 		return content, nil
@@ -250,8 +250,8 @@ func (self *TemplateMgr) CacheTemplate(tmpl string, content []byte) {
 	if self.Preprocessor != nil {
 		content = self.Preprocessor(content)
 	}
-	self.mutex.Lock()
-	defer self.mutex.Unlock()
+	self.Mutex.Lock()
+	defer self.Mutex.Unlock()
 	tmpl = FixDirSeparator(tmpl)
 	self.Logger.Debugf("update template %v on cache", tmpl)
 	self.Caches[tmpl] = content
@@ -259,8 +259,8 @@ func (self *TemplateMgr) CacheTemplate(tmpl string, content []byte) {
 }
 
 func (self *TemplateMgr) CacheDelete(tmpl string) {
-	self.mutex.Lock()
-	defer self.mutex.Unlock()
+	self.Mutex.Lock()
+	defer self.Mutex.Unlock()
 	tmpl = FixDirSeparator(tmpl)
 	if _, ok := self.Caches[tmpl]; ok {
 		self.Logger.Debugf("delete template %v from cache", tmpl)

@@ -719,10 +719,12 @@ func (a *App) run(req *http.Request, w http.ResponseWriter,
 		handlerName += handlerSuffix
 	}
 	isBreak = true
+
 	pool, ok := a.Controllers[reflectType]
 	if !ok {
 		pool = &sync.Pool{}
 		(*pool).New = func() interface{} {
+			//fmt.Println("initialize Reflected pool:", reflectType.Name())
 			ref := &Reflected{
 				NameV:        reflect.ValueOf(reflectType.Name()),
 				StructV:      reflect.New(reflectType),
@@ -793,6 +795,8 @@ func (a *App) run(req *http.Request, w http.ResponseWriter,
 
 	if c.Exit {
 		responseSize = c.ResponseSize
+		//(*pool).Put(ref)
+		(*a.actionPool).Put(c)
 		return
 	}
 
@@ -816,6 +820,8 @@ func (a *App) run(req *http.Request, w http.ResponseWriter,
 				a.error(w, 500, "xsrf token error.")
 				a.Error("xsrf token error.")
 				statusCode = 500
+				//(*pool).Put(ref)
+				(*a.actionPool).Put(c)
 				return
 			}
 		}
@@ -860,6 +866,7 @@ func (a *App) run(req *http.Request, w http.ResponseWriter,
 		}
 		ret = ref.MethodAfter.Call(structAction)
 	}
+
 	if c.Exit {
 		responseSize = c.ResponseSize
 		return
@@ -872,65 +879,87 @@ func (a *App) run(req *http.Request, w http.ResponseWriter,
 
 	sval := ret[0]
 	intf := sval.Interface()
+
+	if intf == nil {
+		responseSize = c.ResponseSize
+		return
+	}
+
 	kind := sval.Kind()
 	var content []byte
-	if intf == nil || kind == reflect.Bool {
+	switch kind {
+	case reflect.Bool:
 		responseSize = c.ResponseSize
 		return
-	} else if kind == reflect.String {
+	case reflect.String:
 		content = []byte(sval.String())
-	} else if kind == reflect.Slice && sval.Type().Elem().Kind() == reflect.Uint8 {
-		content = intf.([]byte)
-	} else if _, ok := intf.(bool); ok {
-		responseSize = c.ResponseSize
-		return
-	} else if obj, ok := intf.(JSON); ok {
-		c.ServeJson(obj.Data)
-		responseSize = c.ResponseSize
-		return
-	} else if obj, ok := intf.(JSONP); ok {
-		c.ServeJsonp(obj.Data, obj.Callback)
-		responseSize = c.ResponseSize
-		return
-	} else if obj, ok := intf.(XML); ok {
-		c.ServeXml(obj.Data)
-		responseSize = c.ResponseSize
-		return
-	} else if obj, ok := intf.(FILE); ok {
-		c.ServeFile(obj.Data)
-		return
-	} else if obj, ok := intf.(SHOW); ok {
-		c.Render(obj.Tmpl, obj.T)
-		return
-	} else if obj, ok := intf.(JUMP); ok {
-		c.Redirect(obj.Url, obj.Code)
-		return
-	} else if err, ok := intf.(error); ok {
-		if err != nil {
-			a.Error("Error:", err)
-			a.error(w, 500, "Server Error")
-			statusCode = 500
-		} else {
+	case reflect.Slice:
+		if sval.Type().Elem().Kind() == reflect.Uint8 {
+			content = intf.([]byte)
+			break
+		}
+		fallthrough
+	default:
+		switch intf.(type) {
+		case bool:
 			responseSize = c.ResponseSize
-		}
-		return
-	} else if str, ok := intf.(string); ok {
-		content = []byte(str)
-	} else if byt, ok := intf.([]byte); ok {
-		content = byt
-	} else {
-		var validType bool
-		Event("webx:outputBaseonExtension", []interface{}{c, intf}, func(ok bool) {
-			if !ok {
-				validType = true
-				return
+			return
+		case JSON:
+			obj, _ := intf.(JSON)
+			c.ServeJson(obj.Data)
+			responseSize = c.ResponseSize
+			return
+		case JSONP:
+			obj, _ := intf.(JSONP)
+			c.ServeJsonp(obj.Data, obj.Callback)
+			responseSize = c.ResponseSize
+			return
+		case XML:
+			obj, _ := intf.(XML)
+			c.ServeXml(obj.Data)
+			responseSize = c.ResponseSize
+			return
+		case FILE:
+			obj, _ := intf.(FILE)
+			c.ServeFile(obj.Data)
+			return
+		case SHOW:
+			obj, _ := intf.(SHOW)
+			c.Render(obj.Tmpl, obj.T)
+			return
+		case JUMP:
+			obj, _ := intf.(JUMP)
+			c.Redirect(obj.Url, obj.Code)
+			return
+		case error:
+			err, _ := intf.(error)
+			if err != nil {
+				a.Error("Error:", err)
+				a.error(w, 500, "Server Error")
+				statusCode = 500
+			} else {
+				responseSize = c.ResponseSize
 			}
-			responseSize, validType = defaultResponse(c, intf)
-		})
-		if !validType {
-			a.Warnf("unknown returned result type %v, ignored %v", kind, intf)
+			return
+		case string:
+			str, _ := intf.(string)
+			content = []byte(str)
+		case []byte:
+			content, _ = intf.([]byte)
+		default:
+			var validType bool
+			Event("webx:outputBaseonExtension", []interface{}{c, intf}, func(ok bool) {
+				if !ok {
+					validType = true
+					return
+				}
+				responseSize, validType = defaultResponse(c, intf)
+			})
+			if !validType {
+				a.Warnf("unknown returned result type %v, ignored %v", kind, intf)
+			}
+			return
 		}
-		return
 	}
 
 	w.Header().Set("Content-Length", strconv.Itoa(len(content)))
@@ -938,9 +967,9 @@ func (a *App) run(req *http.Request, w http.ResponseWriter,
 	if err != nil {
 		a.Errorf("Error during write: %v", err)
 		statusCode = 500
-		return
+	} else {
+		responseSize = int64(size)
 	}
-	responseSize = int64(size)
 	return
 }
 

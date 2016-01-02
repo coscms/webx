@@ -258,7 +258,10 @@ func (s *Server) run(addr string, l net.Listener) (err error) {
 
 	mux := http.NewServeMux()
 	if s.Config.Profiler {
-		mux.Handle("/debug/pprof", http.HandlerFunc(pprof.Index))
+		mux.Handle("/debug/pprof", http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
+			redirect(rw, "/debug/pprof/")
+		}))
+		mux.Handle("/debug/pprof/", http.HandlerFunc(pprof.Index))
 		mux.Handle("/debug/pprof/heap", pprof.Handler("heap"))
 		mux.Handle("/debug/pprof/block", pprof.Handler("block"))
 		mux.Handle("/debug/pprof/goroutine", pprof.Handler("goroutine"))
