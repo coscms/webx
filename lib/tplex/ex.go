@@ -171,18 +171,18 @@ func (self *TemplateEx) Fetch(tmplName string, fn func() htmlTpl.FuncMap, values
 				tmpl.AddParseTree(name, self.CachedRelation[name].Tpl[1].Tree)
 				continue
 			}
+			if self.BeforeRender != nil {
+				self.BeforeRender(&subc)
+			}
 			var t *htmlTpl.Template
 			if name == tmpl.Name() {
 				t = tmpl
 			} else {
 				t = tmpl.New(name)
-			}
-			if self.BeforeRender != nil {
-				self.BeforeRender(&subc)
-			}
-			_, err = t.Parse(subc)
-			if err != nil {
-				return fmt.Sprintf("Parse File %v err: %v", name, err)
+				_, err = t.Parse(subc)
+				if err != nil {
+					return fmt.Sprintf("Parse File %v err: %v", name, err)
+				}
 			}
 
 			if ok {
@@ -197,18 +197,18 @@ func (self *TemplateEx) Fetch(tmplName string, fn func() htmlTpl.FuncMap, values
 
 		}
 		for name, extc := range extcs {
+			if self.BeforeRender != nil {
+				self.BeforeRender(&extc)
+			}
 			var t *htmlTpl.Template
 			if name == tmpl.Name() {
 				t = tmpl
 			} else {
 				t = tmpl.New(name)
-			}
-			if self.BeforeRender != nil {
-				self.BeforeRender(&extc)
-			}
-			_, err = t.Parse(extc)
-			if err != nil {
-				return fmt.Sprintf("Parse Block %v err: %v", name, err)
+				_, err = t.Parse(extc)
+				if err != nil {
+					return fmt.Sprintf("Parse Block %v err: %v", name, err)
+				}
 			}
 		}
 
@@ -309,19 +309,17 @@ func (self *TemplateEx) Tag(content string) string {
 	return self.DelimLeft + content + self.DelimRight
 }
 
-// Include method provide to template for {{include "about"}}
 func (self *TemplateEx) Include(tmplName string, fn func() htmlTpl.FuncMap, values interface{}) interface{} {
 	return htmlTpl.HTML(self.Fetch(tmplName, fn, values))
 }
 
 func (self *TemplateEx) Parse(tmpl *htmlTpl.Template, values interface{}) string {
-	newbytes := bytes.NewBufferString("")
-	err := tmpl.Execute(newbytes, values)
+	buf := new(bytes.Buffer)
+	err := tmpl.Execute(buf, values)
 	if err != nil {
 		return fmt.Sprintf("Parse %v err: %v", tmpl.Name(), err)
 	}
-
-	b, err := ioutil.ReadAll(newbytes)
+	b, err := ioutil.ReadAll(buf)
 	if err != nil {
 		return fmt.Sprintf("Parse %v err: %v", tmpl.Name(), err)
 	}

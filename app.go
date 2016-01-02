@@ -208,15 +208,7 @@ func NewApp(path string, name string) *App {
 		actionPool:    &sync.Pool{},
 	}
 	(*app.actionPool).New = func() interface{} {
-		return &Action{
-			App: app,
-			T:   T{},
-			f:   T{},
-			Option: &ActionOption{
-				AutoMapForm: app.AppConfig.FormMapToStruct,
-				CheckXsrf:   app.AppConfig.CheckXsrf,
-			},
-		}
+		return NewAction(app)
 	}
 	return app
 }
@@ -721,19 +713,8 @@ func (a *App) run(req *http.Request, w http.ResponseWriter,
 	isBreak = true
 
 	/*/==================================
-	c := &Action{
-		Request:        req,
-		App:            a,
-		ResponseWriter: w,
-		T:              T{},
-		f:              T{},
-		Option: &ActionOption{
-			AutoMapForm: a.AppConfig.FormMapToStruct,
-			CheckXsrf:   a.AppConfig.CheckXsrf,
-		},
-		ExtensionName: extensionName,
-		args:          make([]string, len(args)),
-	}
+	c := NewAction(a)
+	c.reset(req,w,extensionName,args)
 
 	for k, v := range args {
 		c.args[k] = v.String()
@@ -858,15 +839,7 @@ func (a *App) run(req *http.Request, w http.ResponseWriter,
 	defer (*pool).Put(ref)
 
 	c := (*a.actionPool).Get().(*Action)
-	c.Request = req
-	c.ResponseWriter = w
-	c.ExtensionName = extensionName
-	c.args = make([]string, len(args))
-	c.Exit = false
-	c.RequestBody = make([]byte, 0)
-	c.session = nil
-	c.T = T{}
-	c.f = T{}
+	c.reset(req, w, extensionName, args)
 	defer (*a.actionPool).Put(c)
 
 	for k, v := range args {

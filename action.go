@@ -34,6 +34,26 @@ type ActionOption struct {
 	CheckXsrf   bool
 }
 
+func NewAction(a *App) *Action {
+	c := &Action{
+		App: a,
+		T:   T{},
+		f:   T{},
+		Option: &ActionOption{
+			AutoMapForm: a.AppConfig.FormMapToStruct,
+			CheckXsrf:   a.AppConfig.CheckXsrf,
+		},
+		args: make([]string, 0),
+	}
+	c.f["include"] = c.Include
+	c.f["Include"] = c.Include
+	c.f["session"] = c.GetSession
+	c.f["cookie"] = c.Cookie
+	c.f["XsrfFormHtml"] = c.XsrfFormHtml
+	c.f["XsrfValue"] = c.XsrfValue
+	return c
+}
+
 // An Action object or it's substruct is created for every incoming HTTP request.
 // It provides information
 // about the request, including the http.Request object, the GET and POST params,
@@ -54,6 +74,15 @@ type Action struct {
 	ExtensionName string
 	args          []string
 	Exit          bool
+}
+
+func (c *Action) reset(req *http.Request, w http.ResponseWriter, extensionName string, args []reflect.Value) {
+	c.Request = req
+	c.ResponseWriter = w
+	c.ExtensionName = extensionName
+	c.args = make([]string, len(args))
+	c.Exit = false
+	c.RequestBody = make([]byte, 0)
 }
 
 func (c *Action) Self() interface{} {
@@ -646,18 +675,6 @@ func (c *Action) Include(tmplName string, args ...interface{}) interface{} {
 }
 
 func (c *Action) setTemplateData(params ...*T) {
-	c.f["include"] = c.Include
-	c.f["Include"] = c.Include
-	if c.App.AppConfig.SessionOn {
-		c.f["session"] = c.GetSession
-	} else {
-		c.f["session"] = func(key string) interface{} {
-			return ""
-		}
-	}
-	c.f["cookie"] = c.Cookie
-	c.f["XsrfFormHtml"] = c.XsrfFormHtml
-	c.f["XsrfValue"] = c.XsrfValue
 	if len(params) > 0 {
 		c.MultiAssign(params[0])
 	}
@@ -876,6 +893,9 @@ func (c *Action) Session() *httpsession.Session {
 }
 
 func (c *Action) GetSession(key string) interface{} {
+	if !c.App.AppConfig.SessionOn {
+		return ""
+	}
 	return c.Session().Get(key)
 }
 
