@@ -139,7 +139,7 @@ func (self *TemplateEx) Fetch(tmplName string, fn func() htmlTpl.FuncMap, values
 
 		ident := self.DelimLeft + self.IncludeTag + self.DelimRight
 		if self.cachedRegexIdent != ident || self.incTagRegex == nil {
-			InitRegexp()
+			self.InitRegexp()
 		}
 		m := self.extTagRegex.FindAllStringSubmatch(content, 1)
 		if len(m) > 0 {
