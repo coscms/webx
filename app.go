@@ -795,8 +795,6 @@ func (a *App) run(req *http.Request, w http.ResponseWriter,
 
 	if c.Exit {
 		responseSize = c.ResponseSize
-		//(*pool).Put(ref)
-		(*a.actionPool).Put(c)
 		return
 	}
 
@@ -820,8 +818,6 @@ func (a *App) run(req *http.Request, w http.ResponseWriter,
 				a.error(w, 500, "xsrf token error.")
 				a.Error("xsrf token error.")
 				statusCode = 500
-				//(*pool).Put(ref)
-				(*a.actionPool).Put(c)
 				return
 			}
 		}
