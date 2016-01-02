@@ -720,6 +720,104 @@ func (a *App) run(req *http.Request, w http.ResponseWriter,
 	}
 	isBreak = true
 
+	/*/==================================
+	c := &Action{
+		Request:        req,
+		App:            a,
+		ResponseWriter: w,
+		T:              T{},
+		f:              T{},
+		Option: &ActionOption{
+			AutoMapForm: a.AppConfig.FormMapToStruct,
+			CheckXsrf:   a.AppConfig.CheckXsrf,
+		},
+		ExtensionName: extensionName,
+		args:          make([]string, len(args)),
+	}
+
+	for k, v := range args {
+		c.args[k] = v.String()
+	}
+
+	for k, v := range a.VarMaps {
+		c.T[k] = v
+	}
+
+	vc := reflect.New(reflectType)
+	el := vc.Elem()
+	if m := el.FieldByName("Action"); m.IsValid() {
+		m.Set(reflect.ValueOf(c))
+		//设置C字段的值
+		el.FieldByName("C").Set(reflect.ValueOf(vc))
+	}
+	if m := vc.MethodByName("Init"); m.IsValid() {
+		m.Call([]reflect.Value{})
+	}
+	if c.Exit {
+		responseSize = c.ResponseSize
+		return
+	}
+	//表单数据自动映射到结构体
+	if c.Option.AutoMapForm {
+		a.StructMap(vc.Interface(), req)
+	}
+
+	//验证XSRF
+	if c.Option.CheckXsrf {
+		a.XsrfManager.Init(c)
+		if req.Method == "POST" {
+			formVals := req.Form[XSRF_TAG]
+			var formVal string
+			if len(formVals) > 0 {
+				formVal = formVals[0]
+			}
+			if formVal == "" ||
+				!a.XsrfManager.Valid(a.AppConfig.CookiePrefix+
+					XSRF_TAG, formVal) {
+				a.error(w, 500, "xsrf token error.")
+				a.Error("xsrf token error.")
+				statusCode = 500
+				return
+			}
+		}
+	}
+	structName := reflect.ValueOf(reflectType.Name())
+	actionName := reflect.ValueOf(handlerName)
+
+	if m := vc.MethodByName("Before"); m.IsValid() {
+		structAction := []reflect.Value{structName, actionName}
+		if ok := m.Call(structAction); c.Exit || (len(ok) > 0 && ok[0].Kind() == reflect.Bool && !ok[0].Bool()) {
+			responseSize = c.ResponseSize
+			return
+		}
+	}
+	m := vc.MethodByName(handlerName)
+	ret, err := a.SafelyCall(m, args)
+	if err != nil {
+		//there was an error or panic while calling the handler
+		if a.AppConfig.Mode == Debug {
+			a.error(w, 500, fmt.Sprintf("<pre>handler error: %v</pre>", err))
+		} else if a.AppConfig.Mode == Product {
+			a.error(w, 500, "Server Error")
+		}
+		statusCode = 500
+		responseSize = c.ResponseSize
+		return
+	}
+	statusCode = c.StatusCode
+
+	if m := vc.MethodByName("After"); m.IsValid() {
+		structAction := []reflect.Value{structName, actionName}
+		structAction = append(structAction, ret...)
+		if len(structAction) != m.Type().NumIn() {
+			a.Errorf("Error : %v.After(): The number of params is not adapted.", structName)
+			return
+		}
+		ret = m.Call(structAction)
+	}
+	//*/
+
+	//=====================================
 	pool, ok := a.Controllers[reflectType]
 	if !ok {
 		pool = &sync.Pool{}
@@ -862,7 +960,7 @@ func (a *App) run(req *http.Request, w http.ResponseWriter,
 		}
 		ret = ref.MethodAfter.Call(structAction)
 	}
-
+	// */
 	if c.Exit {
 		responseSize = c.ResponseSize
 		return
