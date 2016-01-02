@@ -28,6 +28,7 @@ func New(logger *log.Logger, templateDir string, cached ...bool) *TemplateEx {
 		BlockTag:       "Block",
 		SuperTag:       "Super",
 		Ext:            ".html",
+		//Debug:          true,
 	}
 	mgrCtlLen := len(cached)
 	if mgrCtlLen > 0 && cached[0] {
@@ -331,4 +332,9 @@ func (self *TemplateEx) RawContent(tmpl string) ([]byte, error) {
 		return self.TemplateMgr.GetTemplate(tmpl)
 	}
 	return ioutil.ReadFile(filepath.Join(self.TemplateDir, tmpl))
+}
+
+func (self *TemplateEx) ClearCache() {
+	self.TemplateMgr.ClearCache()
+	self.CachedRelation = make(map[string]*CcRel)
 }

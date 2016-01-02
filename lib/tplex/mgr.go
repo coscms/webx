@@ -268,3 +268,7 @@ func (self *TemplateMgr) CacheDelete(tmpl string) {
 	}
 	return
 }
+
+func (self *TemplateMgr) ClearCache() {
+	self.Caches = make(map[string][]byte)
+}

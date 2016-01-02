@@ -305,3 +305,9 @@ func (self *StaticVerMgr) IsCombined(combineUrl string) (ok bool) {
 	_, ok = self.Combines[combineUrl]
 	return
 }
+
+func (self *StaticVerMgr) ClearCache() {
+	self.Caches = make(map[string]string)
+	self.Combined = make(map[string][]string)
+	self.Combines = make(map[string]bool)
+}
