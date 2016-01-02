@@ -462,6 +462,13 @@ func (app *App) AddRouter(url string, c interface{}) {
 		// 3. memo - 注释说明
 		//`webx:"list_(\\d+)(?:_(\\d+))?" tmpl:"list_({cid})(_{page})" memo:"列表页"`
 		//`webx:"index(?:_(\\d+)){0,2}" tmpl:"index(_{id})(_{page})" memo:"首页"`
+		//webx标签内容支持以下格式：
+		//1、只指定http请求方式，如`webx:"POST|GET"`
+		//2、只指定路由规则，如:
+		//	`webx:"index"`(会生成“/<app路由>/<act>/index”,如果是RootApp会生成“/<act>/index”)
+		//	`webx:"/index"`(即以“/”开头，会生成“/<app路由>/index”,如果是RootApp会生成“/index”)
+		//3、只指定扩展名规则，如`webx:".JSON|XML"`
+		//4、指定以上全部规则，如`webx:"GET|POST.JSON|XML index"`
 		tagMapper := NewTagMapper("")
 		tag := t.Field(i).Tag
 		tagMapper.Memo = tag.Get("memo")
