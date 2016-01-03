@@ -133,8 +133,6 @@ type App struct {
 	Logger          *log.Logger
 	VarMaps         T
 	SessionManager  *httpsession.Manager //Session manager
-	RootTemplate    *template.Template
-	ErrorTemplate   *template.Template
 	StaticVerMgr    *StaticVerMgr
 	TemplateEx      *tplex.TemplateEx
 	ContentEncoding string
@@ -217,6 +215,46 @@ func (a *App) IsRootApp() bool {
 	return a.BasePath == "/"
 }
 
+func (a *App) ChangeStaticDir(staticDir string) {
+	if a.AppConfig.StaticDir != staticDir {
+		if (a.IsRootApp() || a.Server.RootApp.AppConfig.StaticDir != a.AppConfig.StaticDir) && a.StaticVerMgr != nil {
+			a.StaticVerMgr.Close()
+		}
+		a.AppConfig.StaticDir = staticDir
+		a.StaticVerMgr = new(StaticVerMgr)
+		a.StaticVerMgr.Init(a, a.AppConfig.StaticDir)
+	}
+}
+
+func (a *App) TemplatePath(tmplPath string) string {
+	if len(tmplPath) > 2 && tmplPath[1] == ':' {
+		switch tmplPath[0] {
+		case '#':
+			tmplPath = "#shared/" + tmplPath[2:]
+		case '.':
+			tmplPath = a.Name + "/" + tmplPath[2:]
+		case '^':
+			return tmplPath[2:]
+		}
+	}
+	if a.AppConfig.TemplateTheme != "" {
+		tmplPath = a.AppConfig.TemplateTheme + "/" + tmplPath
+	}
+	return tmplPath
+}
+
+func (a *App) ChangeTemplateDir(tmplDir string) {
+	if a.AppConfig.TemplateDir != tmplDir {
+		if (a.IsRootApp() || a.Server.RootApp.AppConfig.TemplateDir != a.AppConfig.TemplateDir) && a.TemplateEx != nil {
+			a.TemplateEx.Close()
+		}
+		a.AppConfig.TemplateDir = tmplDir
+		a.TemplateEx = tplex.New(a.AppConfig.TemplateDir)
+		a.TemplateEx.InitMgr(a.Logger, a.AppConfig.CacheTemplates, a.AppConfig.ReloadTemplates)
+		a.TemplateEx.TemplatePathParser = a.TemplatePath
+	}
+}
+
 func (a *App) initApp() {
 	var isRootApp bool = a.IsRootApp()
 	if a.AppConfig.StaticFileVersion {
@@ -230,23 +268,9 @@ func (a *App) initApp() {
 		}
 	}
 	if isRootApp || a.Server.RootApp.AppConfig.TemplateDir != a.AppConfig.TemplateDir {
-		a.TemplateEx = tplex.New(a.Logger, a.AppConfig.TemplateDir, a.AppConfig.CacheTemplates, a.AppConfig.ReloadTemplates)
-		a.TemplateEx.TemplatePathParser = func(tmplPath string) string {
-			if len(tmplPath) > 2 && tmplPath[1] == ':' {
-				switch tmplPath[0] {
-				case '#':
-					tmplPath = "#shared/" + tmplPath[2:]
-				case '.':
-					tmplPath = a.Name + "/" + tmplPath[2:]
-				case '^':
-					return tmplPath[2:]
-				}
-			}
-			if a.AppConfig.TemplateTheme != "" {
-				tmplPath = a.AppConfig.TemplateTheme + "/" + tmplPath
-			}
-			return tmplPath
-		}
+		a.TemplateEx = tplex.New(a.AppConfig.TemplateDir)
+		a.TemplateEx.InitMgr(a.Logger, a.AppConfig.CacheTemplates, a.AppConfig.ReloadTemplates)
+		a.TemplateEx.TemplatePathParser = a.TemplatePath
 	} else {
 		a.TemplateEx = a.Server.RootApp.TemplateEx
 	}

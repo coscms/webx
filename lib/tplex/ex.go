@@ -16,11 +16,12 @@ import (
 	"github.com/coscms/webx/lib/log"
 )
 
-func New(logger *log.Logger, templateDir string, cached ...bool) *TemplateEx {
+var Debug = false
+
+func New(templateDir string) *TemplateEx {
 	t := &TemplateEx{
 		CachedRelation: make(map[string]*CcRel),
 		TemplateDir:    templateDir,
-		TemplateMgr:    new(TemplateMgr),
 		DelimLeft:      "{{",
 		DelimRight:     "}}",
 		IncludeTag:     "Include",
@@ -28,45 +29,18 @@ func New(logger *log.Logger, templateDir string, cached ...bool) *TemplateEx {
 		BlockTag:       "Block",
 		SuperTag:       "Super",
 		Ext:            ".html",
-		//Debug:          true,
-	}
-	mgrCtlLen := len(cached)
-	if mgrCtlLen > 0 && cached[0] {
-		reloadTemplates := true
-		if mgrCtlLen > 1 {
-			reloadTemplates = cached[1]
-		}
-		t.TemplateMgr.OnChangeCallback = func(name, typ, event string) {
-			switch event {
-			case "create":
-			case "delete", "modify", "rename":
-				if typ == "dir" {
-					return
-				}
-				if cs, ok := t.CachedRelation[name]; ok {
-					for key, _ := range cs.Rel {
-						if name == key {
-							logger.Infof("remove cached template object: %v", key)
-							continue
-						}
-						if _, ok := t.CachedRelation[key]; ok {
-							logger.Infof("remove cached template object: %v", key)
-							delete(t.CachedRelation, key)
-						}
-					}
-					delete(t.CachedRelation, name)
-				}
-			}
-		}
-		t.TemplateMgr.Init(logger, templateDir, reloadTemplates)
+		Debug:          Debug,
+		Cached:         true,
 	}
 	t.InitRegexp()
 	return t
 }
 
 type CcRel struct {
-	Rel map[string]uint8
-	Tpl [2]*htmlTpl.Template //0是独立模板；1是子模板
+	Rel  map[string]uint8
+	Tpl  [2]*htmlTpl.Template //0是独立模板；1是子模板
+	Sub  string
+	Self string
 }
 
 type TemplateEx struct {
@@ -87,6 +61,47 @@ type TemplateEx struct {
 	Ext                string
 	TemplatePathParser func(string) string
 	Debug              bool
+	Cached             bool
+}
+
+func (self *TemplateEx) InitMgr(logger *log.Logger, cached ...bool) {
+	self.TemplateMgr = new(TemplateMgr)
+
+	ln := len(cached)
+	if ln < 1 || !cached[0] {
+		return
+	}
+	reloadTemplates := true
+	if ln > 1 {
+		reloadTemplates = cached[1]
+	}
+	self.TemplateMgr.OnChangeCallback = func(name, typ, event string) {
+		switch event {
+		case "create":
+		case "delete", "modify", "rename":
+			if typ == "dir" {
+				return
+			}
+			if cs, ok := self.CachedRelation[name]; ok {
+				for key, _ := range cs.Rel {
+					if name == key {
+						logger.Infof("remove cached template object: %v", key)
+						continue
+					}
+					if _, ok := self.CachedRelation[key]; ok {
+						logger.Infof("remove cached template object: %v", key)
+						delete(self.CachedRelation, key)
+					}
+				}
+				delete(self.CachedRelation, name)
+			}
+		}
+	}
+	self.TemplateMgr.Init(logger, self.TemplateDir, reloadTemplates)
+}
+
+func (self *TemplateEx) SetMgr(mgr *TemplateMgr) {
+	self.TemplateMgr = mgr
 }
 
 func (self *TemplateEx) TemplatePath(p string) string {
@@ -116,15 +131,25 @@ func (self *TemplateEx) InitRegexp() {
 }
 
 func (self *TemplateEx) Fetch(tmplName string, fn func() htmlTpl.FuncMap, values interface{}) string {
+	if self.Cached {
+		return self.CachedFetch(tmplName, fn, values)
+	}
 	tmplName = tmplName + self.Ext
 	var tmpl *htmlTpl.Template
+	var err error
 	var funcMap htmlTpl.FuncMap
 	if fn != nil {
 		funcMap = fn()
 	}
 	tmplName = self.TemplatePath(tmplName)
-	cv, ok := self.CachedRelation[tmplName]
-	if !ok || cv.Tpl[0] == nil {
+	rel, ok := self.CachedRelation[tmplName]
+	if !ok || rel.Self == "" {
+		if rel == nil {
+			rel = &CcRel{
+				Rel: make(map[string]uint8),
+				Tpl: [2]*htmlTpl.Template{},
+			}
+		}
 		self.echo(`Read not cached template content:`, tmplName)
 		b, err := self.RawContent(tmplName)
 		if err != nil {
@@ -155,6 +180,125 @@ func (self *TemplateEx) Fetch(tmplName string, fn func() htmlTpl.FuncMap, values
 			}
 			content = string(b)
 			content = self.ParseExtend(content, &extcs, passObject)
+			rel.Rel[extFile] = 0
+			if re, ok := self.CachedRelation[extFile]; !ok {
+				self.CachedRelation[extFile] = &CcRel{
+					Rel: map[string]uint8{tmplName: 0},
+					Tpl: [2]*htmlTpl.Template{},
+				}
+			} else if _, ok := re.Rel[tmplName]; !ok {
+				self.CachedRelation[extFile].Rel[tmplName] = 0
+			}
+		}
+		content = self.ContainsSubTpl(content, &subcs)
+		rel.Self = content
+
+		for name, subc := range subcs {
+			if self.BeforeRender != nil {
+				self.BeforeRender(&subc)
+			}
+			rel.Rel[name] = 0
+			if re, ok := self.CachedRelation[name]; !ok {
+				self.CachedRelation[name] = &CcRel{
+					Rel: map[string]uint8{tmplName: 0},
+					Tpl: [2]*htmlTpl.Template{},
+				}
+			} else if _, ok := re.Rel[tmplName]; !ok {
+				self.CachedRelation[name].Rel[tmplName] = 0
+			}
+			rel.Sub += subc
+		}
+		for name, extc := range extcs {
+			if self.BeforeRender != nil {
+				self.BeforeRender(&extc)
+			}
+			rel.Rel[name] = 0
+			if re, ok := self.CachedRelation[name]; !ok {
+				self.CachedRelation[name] = &CcRel{
+					Rel: map[string]uint8{tmplName: 0},
+					Tpl: [2]*htmlTpl.Template{},
+				}
+			} else if _, ok := re.Rel[tmplName]; !ok {
+				self.CachedRelation[name].Rel[tmplName] = 0
+			}
+			rel.Sub += extc
+		}
+		rel.Rel[tmplName] = 0
+		self.CachedRelation[tmplName] = rel
+	}
+
+	t := htmlTpl.New(tmplName)
+	t.Delims(self.DelimLeft, self.DelimRight)
+	t.Funcs(funcMap)
+	tmpl, err = t.Parse(rel.Self)
+	if err != nil {
+		return fmt.Sprintf("Parse %v err: %v", tmplName, err)
+	}
+	if rel.Sub != "" {
+		_, err = tmpl.New(`rel:` + tmplName).Parse(rel.Sub)
+		if err != nil {
+			return fmt.Sprintf("Parse Relation File %v err: %v", tmplName, err)
+		}
+	}
+
+	return self.Parse(tmpl, values)
+}
+
+func (self *TemplateEx) CachedFetch(tmplName string, fn func() htmlTpl.FuncMap, values interface{}) string {
+	tmplName = tmplName + self.Ext
+	var tmpl *htmlTpl.Template
+	var funcMap htmlTpl.FuncMap
+	if fn != nil {
+		funcMap = fn()
+	}
+	tmplName = self.TemplatePath(tmplName)
+	rel, ok := self.CachedRelation[tmplName]
+	if !ok || rel.Tpl[0] == nil {
+		if rel == nil {
+			rel = &CcRel{
+				Rel: map[string]uint8{tmplName: 0},
+				Tpl: [2]*htmlTpl.Template{},
+			}
+		}
+		self.echo(`Read not cached template content:`, tmplName)
+		b, err := self.RawContent(tmplName)
+		if err != nil {
+			return fmt.Sprintf("RenderTemplate %v read err: %s", tmplName, err)
+		}
+
+		content := string(b)
+		if self.BeforeRender != nil {
+			self.BeforeRender(&content)
+		}
+		subcs := make(map[string]string, 0) //子模板内容
+		extcs := make(map[string]string, 0) //母板内容
+
+		ident := self.DelimLeft + self.IncludeTag + self.DelimRight
+		if self.cachedRegexIdent != ident || self.incTagRegex == nil {
+			self.InitRegexp()
+		}
+		m := self.extTagRegex.FindAllStringSubmatch(content, 1)
+		if len(m) > 0 {
+			self.ParseBlock(content, &subcs, &extcs)
+			extFile := m[0][1] + self.Ext
+			passObject := m[0][2]
+			extFile = self.TemplatePath(extFile)
+			self.echo(`Read layout template content:`, extFile)
+			b, err = self.RawContent(extFile)
+			if err != nil {
+				return fmt.Sprintf("RenderTemplate %v read err: %s", extFile, err)
+			}
+			content = string(b)
+			content = self.ParseExtend(content, &extcs, passObject)
+
+			if v, ok := self.CachedRelation[extFile]; !ok {
+				self.CachedRelation[extFile] = &CcRel{
+					Rel: map[string]uint8{tmplName: 0},
+					Tpl: [2]*htmlTpl.Template{},
+				}
+			} else if _, ok := v.Rel[tmplName]; !ok {
+				self.CachedRelation[extFile].Rel[tmplName] = 0
+			}
 		}
 		content = self.ContainsSubTpl(content, &subcs)
 		t := htmlTpl.New(tmplName)
@@ -213,13 +357,11 @@ func (self *TemplateEx) Fetch(tmplName string, fn func() htmlTpl.FuncMap, values
 			}
 		}
 
-		self.CachedRelation[tmplName] = &CcRel{
-			Rel: map[string]uint8{tmplName: 0},
-			Tpl: [2]*htmlTpl.Template{tmpl, nil},
-		}
+		rel.Tpl[0] = tmpl
+		self.CachedRelation[tmplName] = rel
 
 	} else {
-		tmpl = cv.Tpl[0]
+		tmpl = rel.Tpl[0]
 		tmpl.Funcs(funcMap)
 		if self.Debug {
 			fmt.Println(`Using the template object to be cached:`, tmplName)
@@ -335,6 +477,15 @@ func (self *TemplateEx) RawContent(tmpl string) ([]byte, error) {
 }
 
 func (self *TemplateEx) ClearCache() {
-	self.TemplateMgr.ClearCache()
+	if self.TemplateMgr != nil {
+		self.TemplateMgr.ClearCache()
+	}
 	self.CachedRelation = make(map[string]*CcRel)
+}
+
+func (self *TemplateEx) Close() {
+	self.ClearCache()
+	if self.TemplateMgr != nil {
+		self.TemplateMgr.Close()
+	}
 }

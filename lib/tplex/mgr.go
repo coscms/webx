@@ -25,6 +25,11 @@ type TemplateMgr struct {
 	TimerCallback    func() bool
 	initialized      bool
 	OnChangeCallback func(string, string, string) //参数为：目标名称，类型(file/dir)，事件名(create/delete/modify/rename)
+	done             chan bool
+}
+
+func (self *TemplateMgr) CloseMoniter() {
+	close(self.done)
 }
 
 func (self *TemplateMgr) Moniter(rootDir string) error {
@@ -34,7 +39,7 @@ func (self *TemplateMgr) Moniter(rootDir string) error {
 	}
 	//fmt.Println("[webx] TemplateMgr watcher is start.")
 	defer watcher.Close()
-	done := make(chan bool)
+	self.done = make(chan bool)
 	go func() {
 		for {
 			select {
@@ -104,7 +109,7 @@ func (self *TemplateMgr) Moniter(rootDir string) error {
 			case <-time.After(time.Second * 2):
 				if self.timerCallback != nil {
 					if self.timerCallback() == false {
-						close(done)
+						close(self.done)
 						return
 					}
 				}
@@ -125,7 +130,7 @@ func (self *TemplateMgr) Moniter(rootDir string) error {
 		return err
 	}
 
-	<-done
+	<-self.done
 	//fmt.Println("[webx] TemplateMgr watcher is closed.")
 	return nil
 }
@@ -174,7 +179,7 @@ func (self *TemplateMgr) defaultTimerCallback() func() bool {
 		if self.NewRoorDir == "" || self.NewRoorDir == self.RootDir {
 			return true
 		}
-		self.Caches = make(map[string][]byte)
+		self.ClearCache()
 		self.Ignores = make(map[string]bool)
 		self.RootDir = self.NewRoorDir
 		go self.Moniter(self.RootDir)
@@ -184,7 +189,7 @@ func (self *TemplateMgr) defaultTimerCallback() func() bool {
 
 func (self *TemplateMgr) Close() {
 	self.TimerCallback = func() bool {
-		self.Caches = make(map[string][]byte)
+		self.ClearCache()
 		self.Ignores = make(map[string]bool)
 		self.TimerCallback = nil
 		return false
@@ -198,7 +203,7 @@ func (self *TemplateMgr) Init(logger *log.Logger, rootDir string, reload bool) e
 			return nil
 		} else {
 			self.TimerCallback = func() bool {
-				self.Caches = make(map[string][]byte)
+				self.ClearCache()
 				self.Ignores = make(map[string]bool)
 				self.TimerCallback = nil
 				return false

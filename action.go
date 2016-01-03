@@ -669,7 +669,7 @@ func (c *Action) Include(tmplName string, args ...interface{}) interface{} {
 	if len(args) > 0 {
 		v = args[0]
 	} else {
-		v = c.C.Interface()
+		v = c.Self()
 	}
 	return c.App.TemplateEx.Include(tmplName, c.GetFuncs, v)
 }
@@ -693,7 +693,7 @@ func (c *Action) NamedRender(name, content string, params ...*T) error {
 		c.SetBody([]byte(fmt.Sprintf("%v", err)))
 		return err
 	}
-	content = c.App.TemplateEx.Parse(tmpl, c.C.Interface())
+	content = c.App.TemplateEx.Parse(tmpl, c.Self())
 	b := []byte(content)
 	Event("webx:afterRender", &ActionInformation{c, nil, &b}, func(result bool) {
 		if result {
@@ -710,7 +710,7 @@ func (c *Action) getTemplate(tmpl string) ([]byte, error) {
 // render the template with vars map, you can have zero or one map
 func (c *Action) Render(tmpl string, params ...*T) (err error) {
 	c.setTemplateData(params...)
-	content := c.App.TemplateEx.Fetch(tmpl, c.GetFuncs, c.C.Interface())
+	content := c.App.TemplateEx.Fetch(tmpl, c.GetFuncs, c.Self())
 	b := []byte(content)
 	Event("webx:afterRender", &ActionInformation{c, nil, &b}, func(result bool) {
 		if result {

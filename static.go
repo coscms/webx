@@ -25,6 +25,11 @@ type StaticVerMgr struct {
 	timerCallback func() bool
 	TimerCallback func() bool
 	initialized   bool
+	done          chan bool
+}
+
+func (self *StaticVerMgr) CloseMoniter() {
+	close(self.done)
 }
 
 func (self *StaticVerMgr) Moniter(staticPath string) error {
@@ -33,7 +38,7 @@ func (self *StaticVerMgr) Moniter(staticPath string) error {
 		return err
 	}
 	defer watcher.Close()
-	done := make(chan bool)
+	self.done = make(chan bool)
 	go func() {
 		for {
 			select {
@@ -85,7 +90,7 @@ func (self *StaticVerMgr) Moniter(staticPath string) error {
 			case <-time.After(time.Second * 2):
 				if self.timerCallback != nil {
 					if self.timerCallback() == false {
-						close(done)
+						close(self.done)
 						return
 					}
 				}
@@ -105,7 +110,7 @@ func (self *StaticVerMgr) Moniter(staticPath string) error {
 		return err
 	}
 
-	<-done
+	<-self.done
 	return nil
 }
 
@@ -118,12 +123,7 @@ func (self *StaticVerMgr) defaultTimerCallback() func() bool {
 		if self.app.AppConfig.StaticDir == self.Path {
 			return true
 		}
-		for f, _ := range self.Combines {
-			os.Remove(self.Path + f)
-		}
-		self.Caches = make(map[string]string)
-		self.Combined = make(map[string][]string)
-		self.Combines = make(map[string]bool)
+		self.ClearCache()
 		self.Path = self.app.AppConfig.StaticDir
 		go self.Moniter(self.Path)
 		return false
@@ -132,12 +132,7 @@ func (self *StaticVerMgr) defaultTimerCallback() func() bool {
 
 func (self *StaticVerMgr) Close() {
 	self.TimerCallback = func() bool {
-		for f, _ := range self.Combines {
-			os.Remove(self.Path + f)
-		}
-		self.Caches = make(map[string]string)
-		self.Combined = make(map[string][]string)
-		self.Combines = make(map[string]bool)
+		self.ClearCache()
 		self.TimerCallback = nil
 		return false
 	}
@@ -150,12 +145,7 @@ func (self *StaticVerMgr) Init(app *App, staticPath string) error {
 			return nil
 		} else {
 			self.TimerCallback = func() bool {
-				for f, _ := range self.Combines {
-					os.Remove(self.Path + f)
-				}
-				self.Caches = make(map[string]string)
-				self.Combined = make(map[string][]string)
-				self.Combines = make(map[string]bool)
+				self.ClearCache()
 				self.TimerCallback = nil
 				return false
 			}
@@ -307,6 +297,9 @@ func (self *StaticVerMgr) IsCombined(combineUrl string) (ok bool) {
 }
 
 func (self *StaticVerMgr) ClearCache() {
+	for f, _ := range self.Combines {
+		os.Remove(self.Path + f)
+	}
 	self.Caches = make(map[string]string)
 	self.Combined = make(map[string][]string)
 	self.Combines = make(map[string]bool)
