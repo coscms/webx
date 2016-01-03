@@ -35,5 +35,6 @@ func (this *MainAction) Home() error {
 
 func main() {
 	webx.AddAction(&MainAction{})
+	webx.MainServer().Config.Profiler = true
 	webx.Run("0.0.0.0:8888")
 }

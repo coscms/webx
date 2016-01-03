@@ -10,7 +10,8 @@ import (
 )
 
 func main() {
-	tpl := tplex.New(log.New(os.Stdout, "", log.Ldefault()), "./template/", true)
+	tpl := tplex.New("./template/")
+	tpl.InitMgr(log.New(os.Stdout, "", log.Ldefault()), true)
 	for i := 0; i < 5; i++ {
 		ts := time.Now()
 		fmt.Printf("==========%v: %v========\\\n", i, ts)
