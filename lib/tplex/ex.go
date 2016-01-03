@@ -226,18 +226,27 @@ func (self *TemplateEx) Fetch(tmplName string, fn func() htmlTpl.FuncMap, values
 		rel.Rel[tmplName] = 0
 		self.CachedRelation[tmplName] = rel
 	}
-
-	t := htmlTpl.New(tmplName)
-	t.Delims(self.DelimLeft, self.DelimRight)
-	t.Funcs(funcMap)
-	tmpl, err = t.Parse(rel.Self)
-	if err != nil {
-		return fmt.Sprintf("Parse %v err: %v", tmplName, err)
-	}
-	if rel.Sub != "" {
-		_, err = tmpl.New(`rel:` + tmplName).Parse(rel.Sub)
+	tmpl = rel.Tpl[0]
+	if tmpl == nil {
+		t := htmlTpl.New(tmplName)
+		t.Delims(self.DelimLeft, self.DelimRight)
+		t.Funcs(funcMap)
+		tmpl, err = t.Parse(rel.Sub + rel.Self)
 		if err != nil {
-			return fmt.Sprintf("Parse Relation File %v err: %v", tmplName, err)
+			return fmt.Sprintf("Parse %v err: %v", tmplName, err)
+		}
+		self.CachedRelation[tmplName].Tpl[0] = tmpl
+	} else {
+		tmpl.Funcs(funcMap)
+		if self.Debug {
+			fmt.Println(`Using the template object to be cached:`, tmplName)
+			fmt.Println("_________________________________________")
+			fmt.Println("")
+			for k, v := range tmpl.Templates() {
+				fmt.Printf("%v. %#v\n", k, v.Name())
+			}
+			fmt.Println("_________________________________________")
+			fmt.Println("")
 		}
 	}
 
@@ -458,7 +467,7 @@ func (self *TemplateEx) Include(tmplName string, fn func() htmlTpl.FuncMap, valu
 
 func (self *TemplateEx) Parse(tmpl *htmlTpl.Template, values interface{}) string {
 	buf := new(bytes.Buffer)
-	err := tmpl.Execute(buf, values)
+	err := tmpl.ExecuteTemplate(buf, tmpl.Name(), values)
 	if err != nil {
 		return fmt.Sprintf("Parse %v err: %v", tmpl.Name(), err)
 	}
