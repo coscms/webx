@@ -146,50 +146,26 @@ func Slug(s string, sep string) string {
 func NewCookie(name string, value string, args ...interface{}) *http.Cookie {
 	var (
 		alen     int = len(args)
-		utctime  time.Time
 		age      int64
 		path     string
 		domain   string
 		secure   bool
 		httpOnly bool
 	)
-	if alen > 0 {
-		switch alen {
-		case 2:
-			if v, ok := args[1].(string); ok {
-				path = v
-			}
-		case 3:
-			if v, ok := args[1].(string); ok {
-				path = v
-			}
-			if v, ok := args[2].(string); ok {
-				domain = v
-			}
-		case 4:
-			if v, ok := args[1].(string); ok {
-				path = v
-			}
-			if v, ok := args[2].(string); ok {
-				domain = v
-			}
-			if v, ok := args[3].(bool); ok {
-				secure = v
-			}
-		case 5:
-			if v, ok := args[1].(string); ok {
-				path = v
-			}
-			if v, ok := args[2].(string); ok {
-				domain = v
-			}
-			if v, ok := args[3].(bool); ok {
-				secure = v
-			}
-			if v, ok := args[4].(bool); ok {
-				httpOnly = v
-			}
-		}
+	switch alen {
+	case 5:
+		httpOnly, _ = args[4].(bool)
+		fallthrough
+	case 4:
+		secure, _ = args[3].(bool)
+		fallthrough
+	case 3:
+		domain, _ = args[2].(string)
+		fallthrough
+	case 2:
+		path, _ = args[1].(string)
+		fallthrough
+	case 1:
 		switch args[0].(type) {
 		case int:
 			age = int64(args[0].(int))
@@ -199,25 +175,21 @@ func NewCookie(name string, value string, args ...interface{}) *http.Cookie {
 			age = int64(args[0].(time.Duration))
 		}
 	}
-	if age == 0 {
-		// 2^31 - 1 seconds (roughly 2038)
-		utctime = time.Unix(2147483647, 0)
-	} else {
-		utctime = time.Unix(time.Now().Unix()+age, 0)
+	cookie := &http.Cookie{
+		Name:     name,
+		Value:    value,
+		Path:     path,
+		Domain:   domain,
+		MaxAge:   0,
+		Secure:   secure,
+		HttpOnly: httpOnly,
 	}
-	return &http.Cookie{
-		Name:       name,
-		Value:      value,
-		Path:       path,
-		Domain:     domain,
-		Expires:    utctime,
-		RawExpires: "",
-		MaxAge:     0,
-		Secure:     secure,
-		HttpOnly:   httpOnly,
-		Raw:        "",
-		Unparsed:   make([]string, 0),
+	if age > 0 {
+		cookie.Expires = time.Unix(time.Now().Unix()+age, 0)
+	} else if age < 0 {
+		cookie.Expires = time.Unix(1, 0)
 	}
+	return cookie
 }
 
 func removeStick(uri string) string {
